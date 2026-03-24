@@ -1,0 +1,116 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users (UserProfile)
+    // Document ID: uid
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required)
+    //   - role: string (mentor | tutor | team_leader)
+    //   - name: string
+    //   - tutorId: string
+    //   - isResigned: boolean
+    //   - photoURL: string
+    //   - teamLogoURL: string
+    //   - teamLeaderName: string
+    //   - teamNumber: string
+    //   - subTeamName: string
+    //   - mentorId: string
+    //   - mentorName: string
+    //
+    // Collection: tutors (TutorDetails)
+    // Document ID: uid
+    // Fields:
+    //   - id: string
+    //   - name: string
+    //   - studyPlan: map
+    //   - performance: map
+    //   - status: string (active | resigned)
+    //
+    // Subcollections: vacations, qualityReports, flags, courses
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function getUserData(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data;
+    }
+
+    function hasRole(role) {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             getUserData(request.auth.uid).role == role;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (request.auth.token.email == "sief.ta3lab@gmail.com" ||
+         request.auth.token.email == "seifeldin.ashraf@ischooltech.com" ||
+         hasRole('admin') || hasRole('team_leader'));
+    }
+
+    // Check if mentor owns the tutor
+    function isMentorOf(tutorId) {
+      return (hasRole('mentor') || hasRole('team_leader')) && 
+             exists(/databases/$(database)/documents/users/$(tutorId)) &&
+             getUserData(tutorId).mentorId == request.auth.uid;
+    }
+
+    // Rules for users collection
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin() || 
+                    (isAuthenticated() && resource.data.mentorId == request.auth.uid) ||
+                    (isAuthenticated() && resource.data.role == 'mentor' && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.mentorId == userId);
+      allow write: if isAdmin() || (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'mentorId']));
+      allow delete: if isAdmin();
+    }
+
+    // Rules for tutors collection and subcollections
+    match /tutors/{tutorId} {
+      allow read: if isOwner(tutorId) || isAdmin() || isMentorOf(tutorId) || (isAuthenticated() && resource.data.mentorId == request.auth.uid);
+      allow write: if isAdmin() || isMentorOf(tutorId) || (isAuthenticated() && request.resource.data.mentorId == request.auth.uid);
+
+      match /{subcollection}/{docId} {
+        allow read: if isOwner(tutorId) || isAdmin() || isMentorOf(tutorId) || (isAuthenticated() && get(/databases/$(database)/documents/tutors/$(tutorId)).data.mentorId == request.auth.uid);
+        allow write: if isAdmin() || isMentorOf(tutorId) || (isAuthenticated() && get(/databases/$(database)/documents/tutors/$(tutorId)).data.mentorId == request.auth.uid) || 
+                       (isOwner(tutorId) && subcollection == 'flags' && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['tutorFeedback']));
+      }
+    }
+    
+    // Rules for tutor_ids collection
+    match /tutor_ids/{id} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
+    }
+    
+    // Rules for feedbacks collection
+    match /feedbacks/{id} {
+      allow read: if isAdmin() || (isAuthenticated() && (resource.data.mentorId == request.auth.uid || resource.data.tutorId == request.auth.uid));
+      allow create: if isAuthenticated() && request.resource.data.tutorId == request.auth.uid;
+      allow update: if isAuthenticated() && (
+        (resource.data.mentorId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])) ||
+        (resource.data.tutorId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'messageContent', 'timestamp', 'replies']))
+      );
+      allow delete: if isAdmin();
+    }
+    
+    // Test collection
+    match /test/connection {
+      allow read: if true;
+    }
+  }
+}

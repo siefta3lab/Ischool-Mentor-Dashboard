@@ -1,0 +1,32 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+        (request.auth.token.email == "sief.ta3lab@gmail.com" ||
+         request.auth.token.email == "seifeldin.ashraf@ischooltech.com");
+    }
+
+    // Team Logos: Mentors can upload, everyone can read
+    match /team_logos/{mentorId}/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(mentorId) || isAdmin();
+    }
+    
+    // Legacy Profile Photos (if still needed for read)
+    match /profiles/{userId}/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId) || isAdmin();
+    }
+  }
+}
