@@ -1,20 +1,20 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# 🚀 iSchool Mentor Dashboard
 
-# Run and deploy your AI Studio app
+A professional portal designed to streamline tasks and communication between **Mentors** and **Tutors** at iSchool.
 
-This contains everything you need to run your app locally.
+## 🛠️ Tech Stack
+- **Frontend:** React + Vite
+- **Backend:** Firebase (Auth & Firestore)
+- **Deployment:** Vercel
 
-View your app in AI Studio: https://ai.studio/apps/6d7302df-6bd4-4618-b160-f7ed28b85048
+## ✨ Key Features
+- **Role-based Access Control:** Secure views tailored for Mentors and Tutors.
+- **Real-time Data Sync:** Instant updates for session feedback and reports.
+- **Profile Management:** Integrated with Google Drive for seamless asset loading.
 
-## Run Locally
+## 👨‍💻 Developer
+**Seif Ta'lab**
+*Aerospace Engineer | Odoo Developer | Coding Instructor*
 
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+---
+*Developed to empower the iSchool mentor community.*
