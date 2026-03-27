@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
+import Papa from 'papaparse';
 import { 
   collection, 
   doc, 
@@ -2172,6 +2173,61 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
       }
     };
 
+    // سطر 2174 - بداية فنكشن المزامنة
+  const syncStudyFromSheets = async () => {
+  const SHEET_URL = "حط_لينك_الـCSV_هنا"; 
+
+  Papa.parse(SHEET_URL, {
+    download: true,
+    header: true,
+    complete: async (results) => {
+      const rows = results.data as any[];
+      const currentRow = rows.find(r => r.ID === details.id); 
+
+      if (currentRow) {
+        // 1. تجميع الكورسات الجديدة من الشيت
+        const newCourses = [];
+        Object.keys(currentRow).forEach(col => {
+          if (currentRow[col] === "Done...") {
+            const match = col.match(/(M\d+):\s*(Grade\s*[\d-]*)\s*\[(.*?)\]/);
+            if (match) {
+              newCourses.push({
+                name: `${match[1]} ${match[2]} [${match[3]}]`, // الصيغة الإنجليزية
+                grade: "Done"
+              });
+            } else if (col === "Free") {
+              newCourses.push({ name: "Free", grade: "Done" });
+            }
+          }
+        });
+
+        // 2. مسح الكورسات القديمة من الـ Sub-collection (عشان ميتكرروش)
+        const coursesRef = collection(db, 'tutors', details.id, 'courses');
+        const oldDocs = await getDocs(coursesRef);
+        const deletePromises = oldDocs.docs.map(doc => deleteDoc(doc.ref));
+        await Promise.all(deletePromises);
+
+        // 3. إضافة الكورسات الجديدة واحد واحد (زي ما الصورة متوقعة)
+        const addPromises = newCourses.map(course => addDoc(coursesRef, {
+          ...course,
+          createdAt: new Date().toISOString()
+        }));
+        await Promise.all(addPromises);
+
+        // 4. تحديث الـ Study Plan (الخانات اللي فوق) بالمرة
+        await updateDoc(doc(db, 'tutors', details.id), {
+          "studyPlan.course1": newCourses[0]?.name || '-',
+          "studyPlan.course1Grade": newCourses[0]?.grade || '',
+          "studyPlan.course2": newCourses[1]?.name || '-',
+          "studyPlan.course2Grade": newCourses[1]?.grade || '',
+        });
+
+        alert("تم تحديث إجمالي الدراسة (Total Study) بنجاح!");
+      }
+    }
+  });
+};
+
   if (loading) return <Loading />;
   if (!details) return <div className="text-center py-12">{t('noData')}</div>;
 
@@ -2261,7 +2317,21 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* A) Study Plan */}
-        <Card title={t('studyPlan')} icon={<BookOpen size={20} />}>
+        // سطر 308 في ملف App.tsx
+        <Card 
+          title={
+            <div className="flex justify-between items-center w-full">
+              <span>{t('studyPlan')}</span>
+              <button 
+                onClick={syncStudyFromSheets}
+                className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs transition-colors flex items-center gap-1"
+              >
+                <span>Sync Sheets</span>
+              </button>
+            </div>
+          } 
+          icon={<BookOpen size={20} />}
+        >
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-4">
               <div className="p-4 bg-[#89CFF0]/10 rounded-xl border border-[#89CFF0]/20">
@@ -2568,7 +2638,21 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
         </Card>
 
         {/* E) Total Study */}
-        <Card title={t('totalStudy')} icon={<BookOpen size={20} />} onAdd={isMentor ? handleAddCourse : undefined}>
+        <Card 
+          title={
+            <div className="flex justify-between items-center w-full gap-4">
+              <span>{t('totalStudy')}</span>
+              <button 
+                onClick={(e) => { e.stopPropagation(); syncStudyFromSheets(); }}
+                className="bg-green-600 hover:bg-green-700 text-white px-2 py-0.5 rounded text-[10px] flex items-center gap-1 transition-colors"
+              >
+                Sync from Sheets
+              </button>
+            </div>
+          } 
+          icon={<BookOpen size={20} />} 
+          onAdd={isMentor ? handleAddCourse : undefined}
+        >
           <div className="space-y-3">
             {courses.map((c) => (
               <div key={c.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg group">
