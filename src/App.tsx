@@ -844,7 +844,7 @@ function ISchoolLogo() {
       </div>
       <div className="flex flex-col items-center">
         <span className="text-2xl font-black text-[#0047AB] tracking-tighter">iSchool</span>
-        <span className="text-xs font-bold text-[#89CFF0] tracking-[0.2em] uppercase mt-[-4px]">T-5c</span>
+        <span className="text-xs font-bold text-[#89CFF0] tracking-[0.2em] uppercase mt-[-4px]">Mentors</span>
       </div>
     </div>
   );
@@ -2140,33 +2140,43 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
     await addDoc(collection(db, 'tutors', tutorId, 'qualityReports'), newVal);
   };
 
-  const handleUploadReport = async (reportId: string, file: File) => {
-    try {
-      const storageRef = ref(storage, `reports/${tutorId}/${reportId}/${file.name}`);
-      const snapshot = await uploadBytes(storageRef, file);
-      const url = await getDownloadURL(snapshot.ref);
-      await updateDoc(doc(db, 'tutors', tutorId, 'qualityReports', reportId), { reportUrl: url });
-      setConfirmConfig({
-        isOpen: true,
-        title: t('success'),
-        message: 'Report uploaded successfully',
-        onConfirm: () => setConfirmConfig(prev => ({ ...prev, isOpen: false }))
-      });
-    } catch (err) {
-      console.error(err);
-      setConfirmConfig({
-        isOpen: true,
-        title: t('error'),
-        message: 'Upload failed',
-        onConfirm: () => setConfirmConfig(prev => ({ ...prev, isOpen: false }))
-      });
-    }
-  };
+  const handleUploadReport = async (reportId: string, pdfLink: string) => {
+      try {
+        const fileId = pdfLink.includes('/d/') 
+          ? pdfLink.split('/d/')[1]?.split('/')[0] 
+          : pdfLink.split('id=')[1]?.split('&')[0];
+        
+        const directLink = fileId 
+          ? `https://drive.google.com/uc?export=download&id=${fileId}` 
+          : pdfLink;
+
+        await updateDoc(doc(db, 'tutors', tutorId, 'qualityReports', reportId), {
+          reportUrl: directLink,
+          updatedAt: new Date().toISOString()
+        });
+
+        setConfirmConfig({
+          isOpen: true,
+          title: t('success'),
+          message: 'Report link updated successfully',
+          onConfirm: () => setConfirmConfig(prev => ({ ...prev, isOpen: false }))
+        });
+      } catch (err) {
+        console.error(err);
+        setConfirmConfig({
+          isOpen: true,
+          title: t('error'),
+          message: 'Update failed',
+          onConfirm: () => setConfirmConfig(prev => ({ ...prev, isOpen: false }))
+        });
+      }
+    };
 
   if (loading) return <Loading />;
   if (!details) return <div className="text-center py-12">{t('noData')}</div>;
 
   return (
+    // هنا بيبدأ الـ JSX بتاعك.. لو لسه في أحمر، يبقى أنت محتاج تقفل القوس اللي بيقفل الـ Component كله تحت.
     <div className="space-y-8">
       {/* Header Info */}
       <div className="flex items-center justify-between bg-white p-6 rounded-2xl shadow-sm border border-[#89CFF0]/20">
@@ -2495,21 +2505,19 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                     ) : <span className="text-xs text-gray-400 italic">No PDF uploaded</span>}
                     
                     {isMentor && (
-                      <div className="relative">
-                        <input 
-                          type="file" 
-                          accept="application/pdf"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) handleUploadReport(r.id, file);
-                          }}
-                          className="absolute inset-0 opacity-0 cursor-pointer"
-                        />
-                        <button className="px-4 py-2 bg-[#89CFF0] text-white rounded-lg text-sm font-bold hover:bg-[#78BEE0] flex items-center gap-2">
-                          <Upload size={16} />
-                          {r.reportUrl ? 'Replace PDF' : 'Upload PDF'}
-                        </button>
-                      </div>
+                      <button
+                        className="px-4 py-2 bg-[#89CFF0] text-white rounded-lg text-xs flex items-center gap-2"
+                        onClick={async () => {
+                          const link = prompt("ادخل لينك الـفايل من جوجل درايف");
+                          if (link) {
+                            // هننادي على الفنكشن اللي بتبعت اللينك للداتا بيز علطول
+                            await handleUploadReport(r.id, link); 
+                          }
+                        }}
+                      >
+                        <Upload size={16} />
+                        {r.reportUrl ? 'Update PDF Link' : 'Add PDF Link'}
+                      </button>
                     )}
                   </div>
                 </div>
