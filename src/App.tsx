@@ -2174,12 +2174,20 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
     };
 
     // سطر 2174 - بداية فنكشن المزامنة
-  const syncStudyFromSheets = async () => {
-  const SHEET_URL = "حط_لينك_الـCSV_هنا"; 
+    const syncStudyFromSheets = async () => {
+    // 1. هيفتح Pop-up تطلب اللينك
+    const SHEET_URL = window.prompt("من فضلك أدخل رابط الـ CSV (Publish to Web):");
 
-  Papa.parse(SHEET_URL, {
-    download: true,
-    header: true,
+    // لو المستخدم داس Cancel أو ساب الخانة فاضية، اخرج ومتحملش حاجة
+    if (!SHEET_URL || SHEET_URL.trim() === "") {
+      console.log("تم إلغاء العملية أو الرابط فارغ");
+      return;
+    }
+
+    // 2. كود الـ Parse بياخد اللينك اللي إنت لسه كاتبه في الـ Pop-up
+    Papa.parse(SHEET_URL, {
+      download: true,
+      header: true,
     complete: async (results) => {
       const rows = results.data as any[];
       const currentRow = rows.find(r => r.ID === details.id); 
@@ -2317,7 +2325,6 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* A) Study Plan */}
-        // سطر 308 في ملف App.tsx
         <Card 
           title={
             <div className="flex justify-between items-center w-full">
@@ -2637,20 +2644,25 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
           </div>
         </Card>
 
-        {/* E) Total Study */}
+        {/* E) Total Study Card */}
         <Card 
           title={
-            <div className="flex justify-between items-center w-full gap-4">
+            <div className="flex justify-between items-center w-full" style={{ gap: '10px' }}>
               <span>{t('totalStudy')}</span>
               <button 
-                onClick={(e) => { e.stopPropagation(); syncStudyFromSheets(); }}
-                className="bg-green-600 hover:bg-green-700 text-white px-2 py-0.5 rounded text-[10px] flex items-center gap-1 transition-colors"
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  syncStudyFromSheets(); // الفنكشن دي هي اللي هتفتح الـ window.prompt
+                }}
+                className="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-[10px] cursor-pointer transition-colors font-bold"
               >
                 Sync from Sheets
               </button>
             </div>
           } 
-          icon={<BookOpen size={20} />} 
+          icon={<BookOpen size={20} />}
           onAdd={isMentor ? handleAddCourse : undefined}
         >
           <div className="space-y-3">
