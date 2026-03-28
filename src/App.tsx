@@ -2278,55 +2278,55 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
     let rawUrl = window.prompt("من فضلك أدخل رابط الشير (تأكد أنك واقف على تاب الفلاجات):");
     if (!rawUrl || !rawUrl.includes('google.com')) return;
 
+    // 1. استخراج الـ GID لضمان سحب البيانات من التاب اللي أنت واقف عليها
     const gidMatch = rawUrl.match(/gid=([0-9]+)/);
     const gidParam = gidMatch ? `&gid=${gidMatch[1]}` : '';
     const SHEET_URL = rawUrl.replace(/\/edit.*$/, `/export?format=csv${gidParam}`);
 
     Papa.parse(SHEET_URL, {
       download: true,
-      header: false,
+      header: false, // بنقرأ بالأعمدة (Index) لضمان الدقة
       skipEmptyLines: true,
       complete: async (results) => {
         const rows = results.data as any[];
         const targetId = String(details?.id || tutorId).trim();
 
-        // 1. فلترة المدرس من العمود C
+        // 2. فلترة الصفوف الخاصة بالمدرس (العمود C هو Index 2)
         const tutorRows = rows.filter(row => 
           String(row[2] || '').trim() === targetId
         );
 
         if (tutorRows.length === 0) {
-          alert(`لم يتم العثور على ID: ${targetId} في التاب الحالية.`);
+          alert(`لم يتم العثور على ID: ${targetId} في هذه التاب. تأكد من صحة الـ ID في الشيت.`);
           return;
         }
 
-        // 2. تحويل البيانات وتصحيح نوع الفلاج (العمود I هو رقم 8)
+        // 3. تحويل البيانات وسحب (النوع والحالة) ديناميكياً
         const newFlags = tutorRows.map(row => ({
-          date: `${row[4] || ''} - ${row[5] || ''}`,
-          // التعديل هنا: يقرأ القيمة من الشيت مباشرة (Yellow أو Red)
-          type: row[8] || 'Yellow Flag', 
-          status: row[12] || 'Working on',
-          reason: row[9] || '-',
-          studentId: row[6] || 'N/A', 
+          date: `${row[4] || ''} - ${row[5] || ''}`, // تاريخ وسلوت (E, F)
+          type: String(row[8] || 'Yellow Flag').trim(), // النوع من عمود I
+          status: String(row[12] || 'Working on').trim(), // الحالة من عمود M
+          reason: row[9] || '-', // السبب من عمود J
+          studentId: row[6] || 'N/A', // طالب/جروب من عمود G
           createdAt: new Date().toISOString(),
-          // هنضيف حقل التاريخ الخام للترتيب فقط
+          // حقل مساعد للترتيب فقط
           rawDate: new Date(row[4] || 0).getTime() 
         }));
 
-        // 3. الترتيب من الأحدث للأقدم (بناءً على تاريخ الجلسة في العمود E)
+        // 4. ترتيب الفلاجات: الأحدث (تاريخ أكبر) يكون فوق
         newFlags.sort((a, b) => b.rawDate - a.rawDate);
 
         try {
+          // 5. تحديث قاعدة البيانات (Firebase)
           const flagsRef = collection(db, 'tutors', tutorId, 'flags');
           const oldDocs = await getDocs(flagsRef);
           
-          // مسح القديم
+          // مسح الفلاجات القديمة للمدرس
           await Promise.all(oldDocs.docs.map(d => deleteDoc(d.ref)));
           
-          // إضافة الجديد المرتب
+          // إضافة الفلاجات الجديدة بالترتيب الصحيح
           for (const flag of newFlags) {
-            // بنشيل rawDate قبل الرفع عشان ميبقاش فيه داتا زيادة في Firebase
-            const { rawDate, ...flagToSave } = flag;
+            const { rawDate, ...flagToSave } = flag; // حذف rawDate قبل الحفظ
             await addDoc(flagsRef, {
                 ...flagToSave,
                 mentorFeedback: "", 
@@ -2334,10 +2334,11 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
             });
           }
 
-          alert(`تمام يا سيف! سحبنا ${newFlags.length} فلاج بنجاح وبترتيب الأحدث.`);
+          alert(`عاش يا سيف! تم مزامنة ${newFlags.length} فلاج بنجاح (الأحدث أولاً).`);
           window.location.reload();
         } catch (err) {
-          alert("حدث خطأ أثناء تحديث Firebase.");
+          console.error(err);
+          alert("حدث خطأ أثناء تحديث البيانات في Firebase.");
         }
       }
     });
@@ -2750,100 +2751,6 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
             </div>
           </div>
         </Card>
-
-        {/* E) Total Study Card */}
-        <Card 
-          title={
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center w-full gap-2">
-              <div className="flex items-center gap-2">
-                <span>{t('totalStudy')}</span>
-                <button 
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    syncStudyFromSheets(); 
-                  }}
-                  className="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-[10px] cursor-pointer transition-colors font-bold"
-                >
-                  Sync from Sheets
-                </button>
-              </div>
-
-              {/* إضافة خانة البحث */}
-              <input 
-                type="text"
-                placeholder="Search courses..."
-                value={courseSearch}
-                onChange={(e) => setCourseSearch(e.target.value)}
-                className="px-2 py-1 text-xs border rounded-md focus:outline-none focus:ring-1 focus:ring-[#89CFF0] w-full md:w-40 text-black font-normal"
-                onClick={(e) => e.stopPropagation()} 
-              />
-            </div>
-          } 
-          icon={<BookOpen size={20} />}
-          onAdd={isMentor ? handleAddCourse : undefined}
-        >
-          <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
-            {(() => {
-              // 1. الفلترة بناءً على السيرش
-              const filtered = courses.filter(c => 
-                (c.name || "").toLowerCase().includes(courseSearch.toLowerCase())
-              );
-
-              // 2. الترتيب (Free ثم M1, M2...)
-              const sorted = [...filtered].sort((a, b) => {
-                const nameA = (a.name || "").toLowerCase();
-                const nameB = (b.name || "").toLowerCase();
-                if (nameA.includes("free")) return -1;
-                if (nameB.includes("free")) return 1;
-                const matchA = nameA.match(/m(\d+)/);
-                const matchB = nameB.match(/m(\d+)/);
-                if (matchA && matchB) return parseInt(matchA[1]) - parseInt(matchB[1]);
-                return nameA.localeCompare(nameB);
-              });
-
-              if (sorted.length === 0) return <p className="text-center text-gray-400 text-xs py-4">No results found</p>;
-
-              return sorted.map((c) => (
-                <div key={c.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg group border border-transparent hover:border-[#89CFF0]/30 transition-all">
-                  <div className="flex-1">
-                    {isMentor ? (
-                      <input 
-                        value={c.name} 
-                        onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'courses', c.id), { name: e.target.value })}
-                        className="bg-transparent border-none focus:ring-0 p-0 font-bold text-[#0047AB] w-full"
-                        placeholder={t('courseName')}
-                      />
-                    ) : <p className="font-bold text-[#0047AB] text-sm">{c.name || '-'}</p>}
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {isMentor ? (
-                      <input 
-                        value={c.grade} 
-                        onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'courses', c.id), { grade: e.target.value })}
-                        className="bg-white border rounded px-2 py-0.5 text-xs w-16 text-center font-bold"
-                        placeholder={t('grade')}
-                      />
-                    ) : <span className="px-2 py-0.5 bg-[#89CFF0]/20 text-[#0047AB] rounded text-[10px] font-bold uppercase">{c.grade || '-'}</span>}
-                    
-                    {isMentor && (
-                      <button 
-                        onClick={() => {
-                          if(window.confirm("Are you sure?")) deleteDoc(doc(db, 'tutors', tutorId, 'courses', c.id));
-                        }} 
-                        className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-opacity"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ));
-            })()}
-          </div>
-        </Card>
-
         {/* F) Flags */}
         <Card 
           title={
@@ -2867,7 +2774,8 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
               <div key={f.id} className="p-4 border rounded-xl space-y-3 relative group bg-white shadow-sm">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    {/* نوع العلم - Red or Yellow */}
+                    
+                    {/* نوع العلم - بيقرأ القيمة من الشيت ديناميكياً */}
                     {isMentor ? (
                       <select 
                         value={f.type} 
@@ -2877,45 +2785,53 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                           if (newType !== oldType) {
                             await updateDoc(doc(db, 'tutors', tutorId, 'flags', f.id), { type: newType });
                             await updateDoc(doc(db, 'tutors', tutorId), {
-                              [newType === 'red' ? 'redFlags' : 'yellowFlags']: increment(1),
-                              [oldType === 'red' ? 'redFlags' : 'yellowFlags']: increment(-1)
+                              [newType.toLowerCase().includes('red') ? 'redFlags' : 'yellowFlags']: increment(1),
+                              [oldType.toLowerCase().includes('red') ? 'redFlags' : 'yellowFlags']: increment(-1)
                             });
                           }
                         }}
-                        className={`text-[10px] font-bold uppercase rounded-full px-2 py-0.5 border-none focus:ring-0 cursor-pointer ${f.type?.toLowerCase().includes('red') ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600'}`}
+                        className={`text-[10px] font-bold uppercase rounded-full px-2 py-0.5 border-none focus:ring-0 cursor-pointer ${
+                          f.type?.toLowerCase().includes('red') ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600'
+                        }`}
                       >
-                        <option value="red">Red Flag</option>
-                        <option value="yellow">Yellow Flag</option>
+                        <option value="Red Flag">Red Flag</option>
+                        <option value="Yellow Flag">Yellow Flag</option>
                       </select>
                     ) : (
-                      <span className={`text-[10px] font-bold uppercase rounded-full px-2 py-0.5 ${f.type?.toLowerCase().includes('red') ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600'}`}>
+                      <span className={`text-[10px] font-bold uppercase rounded-full px-2 py-0.5 ${
+                        f.type?.toLowerCase().includes('red') ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600'
+                      }`}>
                         {f.type}
                       </span>
                     )}
 
-                    {/* الحالة - Status القادمة من العمود M */}
+                    {/* الحالة - Status القادمة من العمود M في الشيت */}
                     {isMentor ? (
                       <select 
                         value={f.status} 
                         onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'flags', f.id), { status: e.target.value })}
-                        className="text-[10px] bg-gray-100 rounded-full px-2 py-0.5 border-none focus:ring-0 cursor-pointer"
+                        className="text-[10px] bg-gray-100 rounded-full px-2 py-0.5 border-none focus:ring-0 cursor-pointer font-medium"
                       >
                         <option value="Done">Done</option>
                         <option value="Working on">Working on</option>
                         <option value="We need to remove Flag">Remove Flag</option>
+                        <option value="We need to change the status">Change Status</option>
                         <option value="First month">First month</option>
                       </select>
                     ) : (
-                      <span className="text-[10px] bg-gray-100 rounded-full px-2 py-0.5 text-gray-600">
+                      <span className={`text-[10px] rounded-full px-2 py-0.5 font-medium ${
+                        f.status === 'Done' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                      }`}>
                         {f.status || 'Pending'}
                       </span>
                     )}
                   </div>
+                  
                   {/* التاريخ والـ Slot من العمود E و F */}
                   <span className="text-[10px] text-gray-400 font-mono">{f.date}</span>
                 </div>
                 
-                {/* خانة الـ Student ID الجديدة من العمود G */}
+                {/* خانة الـ Student ID من العمود G */}
                 <div className="flex items-center gap-2 bg-blue-50/50 p-1.5 rounded-lg">
                   <span className="text-[10px] font-bold text-blue-400 uppercase tracking-tighter">Student ID:</span>
                   <span className="text-xs font-semibold text-blue-700">{f.studentId || 'N/A'}</span>
@@ -2968,7 +2884,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                       if(window.confirm("حذف الفلاج؟")){
                         await deleteDoc(doc(db, 'tutors', tutorId, 'flags', f.id));
                         await updateDoc(doc(db, 'tutors', tutorId), {
-                          [f.type === 'red' ? 'redFlags' : 'yellowFlags']: increment(-1)
+                          [f.type?.toLowerCase().includes('red') ? 'redFlags' : 'yellowFlags']: increment(-1)
                         });
                       }
                     }} 
