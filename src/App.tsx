@@ -2174,106 +2174,81 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
     };
 
   const syncStudyFromSheets = async () => {
-      const SHEET_URL = window.prompt("من فضلك أدخل رابط الـ CSV (Publish to Web):");
+    const SHEET_URL = window.prompt("من فضلك أدخل رابط الـ CSV (Publish to Web):");
 
-      // 1. التحقق من الرابط
-      if (!SHEET_URL || !SHEET_URL.includes('google.com')) {
-          alert("❌ خطأ: الرابط فارغ أو ليس رابط Google Sheets صحيحة.");
-          return;
-      }
+    if (!SHEET_URL || !SHEET_URL.includes('google.com')) {
+        alert("❌ خطأ: الرابط غير صحيح.");
+        return;
+    }
 
-      if (!SHEET_URL.includes('output=csv')) {
-          alert("⚠️ تنبيه: الرابط قد لا يكون بصيغة CSV. تأكد من اختيار (Comma-separated values) عند النشر.");
-      }
+    Papa.parse(SHEET_URL, {
+        download: true,
+        header: true,
+        skipEmptyLines: true,
+        complete: async (results) => {
+            const rows = results.data as any[];
+            const targetId = String(details.id).trim();
 
-      Papa.parse(SHEET_URL, {
-          download: true,
-          header: true,
-          skipEmptyLines: true,
-          complete: async (results) => {
-              const rows = results.data as any[];
-              console.log("--- فحص البيانات القادمة من الشيت ---");
-              console.log("إجمالي الصفوف المستلمة:", rows.length);
-              
-              if (rows.length === 0) {
-                  alert("❌ الملف مفتوح لكنه فارغ من البيانات!");
-                  return;
-              }
+            // 1. البحث عن الصف (بنقارن بـ ID مع تجاهل المسافات)
+            const currentRow = rows.find(r => String(r.ID || r.id).trim() === targetId);
 
-              // طباعة أسماء الأعمدة عشان لو الـ ID مكتوب غلط (مثلاً id سمول)
-              const sheetColumns = Object.keys(rows[0]);
-              console.log("أسماء الأعمدة في ملفك هي:", sheetColumns);
+            if (!currentRow) {
+                alert(`❌ لم يتم العثور على المدرس رقم (${targetId}) في الشيت.`);
+                return;
+            }
 
-              // 2. البحث عن المدرس باستخدام الـ ID المخصص (details.id)
-              const targetId = String(details.id).trim();
-              const currentRow = rows.find(r => {
-                  // بنجرب نقارن بـ 'ID' أو 'id' أو 'Id' عشان نهرب من وجع الدماغ
-                  const sheetId = r.ID || r.id || r.Id;
-                  return String(sheetId).trim() === targetId;
-              });
+            const newCourses: any[] = [];
 
-              if (!currentRow) {
-                  alert(`❌ لم نجد مدرس بـ ID رقم (${targetId})
-                  
-  الأعمدة المتاحة في ملفك هي: [${sheetColumns.join(', ')}]
-  تأكد أن أحد هذه الأعمدة اسمه ID وأن الرقم موجود فيه.`);
-                  return;
-              }
+            // 2. فحص كل الأعمدة
+            Object.keys(currentRow).forEach(col => {
+                const value = String(currentRow[col]).trim().toLowerCase();
+                
+                // التحقق من حالة الكورس (بناءً على الصورة عندك)
+                // بيدور على "done & published" أو "done"
+                if (value === "done & published" || value === "done") {
+                    
+                    // تنظيف اسم العمود من أي سطر جديد (\n) أو مسافات زيادة
+                    const cleanColName = col.replace(/\n/g, ' ').trim();
 
-              console.log("✅ تم العثور على المدرس في الشيت:", currentRow);
+                    // لو العمود هو "Free"
+                    if (cleanColName.toLowerCase() === 'free') {
+                        newCourses.push({ name: "Free", grade: "Done" });
+                    } 
+                    // لو العمود فيه نمط الكورسات (M1, M2...)
+                    else {
+                        // Regex مرن جداً بياخد أي حاجة بتبدأ بـ M وبعدها رقم
+                        const match = cleanColName.match(/(M\d+[:\s\d-]*\[.*?\]|M\d+.*)/i);
+                        newCourses.push({
+                            name: match ? match[0] : cleanColName,
+                            grade: "Done"
+                        });
+                    }
+                }
+            });
 
-              const newCourses: any[] = [];
-              // 3. تحليل الكورسات المنتهية
-              Object.keys(currentRow).forEach(col => {
-                  const value = String(currentRow[col]).trim();
-                  
-                  if (value === "Done...") {
-                      const match = col.match(/(M\d+):\s*(Grade\s*[\d-]*)\s*\[(.*?)\]/);
-                      if (match) {
-                          newCourses.push({
-                              name: `${match[1]} ${match[2]} [${match[3]}]`,
-                              grade: "Done"
-                          });
-                      } else if (col.toLowerCase() === "free") {
-                          newCourses.push({ name: "Free", grade: "Done" });
-                      }
-                  }
-              });
+            if (newCourses.length === 0) {
+                alert("ℹ️ تم العثور على المدرس، لكن لا يوجد أي كورس بحالة 'Done & published' أو 'done'");
+                return;
+            }
 
-              if (newCourses.length === 0) {
-                  alert("ℹ️ المدرس موجود، لكن لم نجد أي خلية مكتوب فيها بالظبط (Done...)");
-                  return;
-              }
+            // 3. التحديث في Firestore
+            try {
+                const coursesRef = collection(db, 'tutors', tutorId, 'courses');
+                const oldDocs = await getDocs(coursesRef);
+                await Promise.all(oldDocs.docs.map(doc => deleteDoc(doc.ref)));
 
-              // 4. التحديث في Firebase
-              try {
-                  const coursesRef = collection(db, 'tutors', tutorId, 'courses');
-                  
-                  // مسح القديم
-                  const oldDocs = await getDocs(coursesRef);
-                  const deletePromises = oldDocs.docs.map(doc => deleteDoc(doc.ref));
-                  await Promise.all(deletePromises);
+                await Promise.all(newCourses.map(course => addDoc(coursesRef, {
+                    ...course,
+                    createdAt: new Date().toISOString()
+                })));
 
-                  // إضافة الجديد
-                  const addPromises = newCourses.map(course => addDoc(coursesRef, {
-                      ...course,
-                      createdAt: new Date().toISOString()
-                  }));
-                  await Promise.all(addPromises);
-
-                  alert(`✅ مبروك! تم سحب (${newCourses.length}) كورس بنجاح.`);
-                  window.location.reload(); 
-
-              } catch (err: any) {
-                  console.error("Firebase Error:", err);
-                  alert("❌ حدث خطأ أثناء الحفظ في Firebase: " + err.message);
-              }
-          },
-          error: (error) => {
-              console.error("PapaParse Error:", error);
-              alert("❌ فشل البرنامج في قراءة الرابط. تأكد أن الملف (Public) ومنشور كـ CSV.");
-          }
-      });
+                alert(`✅ مبروك! تم تحديث (${newCourses.length}) كورس بنجاح.`);
+                window.location.reload();
+            } catch (err) {
+                alert("❌ فشل تحديث البيانات في Firestore");
+            }
+        }
+    });
 };
 
   if (loading) return <Loading />;
