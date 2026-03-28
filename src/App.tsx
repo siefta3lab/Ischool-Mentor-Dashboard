@@ -2278,56 +2278,64 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
     let rawUrl = window.prompt("أدخل رابط الشير (Share Link):");
     if (!rawUrl || !rawUrl.includes('google.com')) return;
 
-    // 1. استخراج الـ GID من الرابط لو موجود عشان نضمن إنه يفتح الشيت الصح
     const gidMatch = rawUrl.match(/gid=([0-9]+)/);
     const gid = gidMatch ? `&gid=${gidMatch[1]}` : '';
-    
-    // 2. تحويل الرابط مع إضافة الـ GID
     const SHEET_URL = rawUrl.replace(/\/edit.*$/, `/export?format=csv${gid}`);
 
     Papa.parse(SHEET_URL, {
       download: true,
-      header: false, // هنخليها false عشان إحنا اللي هنحدد العناوين بنفسنا
+      header: false, // هنقرأ البيانات خام ونعالجها يدوي
       skipEmptyLines: true,
       complete: async (results) => {
         const allRows = results.data as any[];
         
-        // 3. البحث عن صف العناوين (Header Row)
-        // بندور على الصف اللي فيه كلمة "Tutor ID" لأنك عندك صف زيادة فوقه
-        const headerIndex = allRows.findIndex(row => 
-          row.some((cell: any) => String(cell).toLowerCase().includes('tutor id'))
-        );
+        // 1. البحث عن الصف اللي فيه العناوين الفعلية
+        let headerRowIndex = -1;
+        for (let i = 0; i < allRows.length; i++) {
+          const isHeader = allRows[i].some((cell: any) => 
+            String(cell).trim().toLowerCase() === 'tutor id'
+          );
+          if (isHeader) {
+            headerRowIndex = i;
+            break;
+          }
+        }
 
-        if (headerIndex === -1) {
-          alert("لم يتم العثور على عمود 'Tutor ID'. تأكد أنك في الشيت الصحيح.");
+        if (headerRowIndex === -1) {
+          console.log("Full Data Received:", allRows);
+          alert("تعذر تحديد جدول البيانات. تأكد أن عمود 'Tutor ID' موجود بوضوح في الشيت.");
           return;
         }
 
-        // تحديد العناوين والبيانات الفعلية
-        const headers = allRows[headerIndex].map((h: string) => h.trim());
-        const dataRows = allRows.slice(headerIndex + 1);
+        // 2. استخراج العناوين والبيانات
+        const headers = allRows[headerRowIndex].map((h: any) => String(h || '').trim());
+        const dataRows = allRows.slice(headerRowIndex + 1);
 
+        const tutorIdIndex = headers.findIndex(h => h.toLowerCase() === 'tutor id');
         const targetId = String(details?.id || tutorId).trim();
 
-        // 4. فلترة الصفوف بذكاء
-        const tutorIdColIndex = headers.indexOf("Tutor ID");
-        
+        // 3. فلترة المدرس
         const tutorRows = dataRows.filter(row => 
-          String(row[tutorIdColIndex] || '').trim() === targetId
+          String(row[tutorIdIndex] || '').trim() === targetId
         );
 
         if (tutorRows.length === 0) {
-          alert(`لم يتم العثور على ID: ${targetId} في شيت الفلاجات.`);
+          alert(`تم العثور على الجدول، ولكن لم يتم العثور على المدرس ID: ${targetId}`);
           return;
         }
 
-        // 5. مابينج للبيانات (Mapping) بناءً على ترتيب الأعمدة اللي في الصورة
+        // 4. مابينج للأعمدة بناءً على العناوين اللي لقيناها
+        const getVal = (row: any, colName: string) => {
+          const idx = headers.findIndex(h => h.toLowerCase() === colName.toLowerCase());
+          return idx !== -1 ? row[idx] : '';
+        };
+
         const newFlags = tutorRows.map(row => ({
-          date: `${row[headers.indexOf("Session Date")] || ''} - ${row[headers.indexOf("Time Slot")] || ''}`,
-          type: row[headers.indexOf("Flag Type")] || 'Yellow Flag', 
-          status: row[headers.indexOf("Status")] || 'Working on',
-          reason: row[headers.indexOf("Flag Comment")] || '-',
-          studentId: row[headers.indexOf("Group ID")] || 'N/A', 
+          date: `${getVal(row, 'Session Date')} - ${getVal(row, 'Time Slot')}`,
+          type: getVal(row, 'Flag Type') || 'Yellow Flag', 
+          status: getVal(row, 'Status') || 'Working on',
+          reason: getVal(row, 'Flag Comment') || '-',
+          studentId: getVal(row, 'Group ID') || 'N/A', 
           createdAt: new Date().toISOString(),
           mentorFeedback: "", 
           tutorFeedback: ""
@@ -2339,14 +2347,15 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
           await Promise.all(oldDocs.docs.map(d => deleteDoc(d.ref)));
           await Promise.all(newFlags.map(flag => addDoc(flagsRef, flag)));
 
-          alert(`تمت المزامنة بنجاح! تم سحب ${newFlags.length} فلاج.`);
+          alert(`نجاح! تم سحب ${newFlags.length} فلاج.`);
           window.location.reload();
         } catch (err) {
-          alert("خطأ في Firebase.");
+          alert("خطأ في تحديث قاعدة البيانات.");
         }
       }
     });
   };
+  
   if (loading) return <Loading />;
   if (!details) return <div className="text-center py-12">{t('noData')}</div>;
 
