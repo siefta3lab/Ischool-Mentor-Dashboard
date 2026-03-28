@@ -2034,6 +2034,13 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   });
 
   useEffect(() => {
+    // --- الجزء الجديد للمزامنة التلقائية عند الدخول أو الريفرش ---
+    if (tutorId) {
+      if (typeof syncFlagsFromSheets === 'function') syncFlagsFromSheets();
+      if (typeof syncStudyFromSheets === 'function') syncStudyFromSheets();
+    }
+    // -------------------------------------------------------
+
     const unsubDetails = onSnapshot(doc(db, 'tutors', tutorId), (doc) => {
       if (doc.exists()) {
         setDetails(doc.data() as TutorDetails);
