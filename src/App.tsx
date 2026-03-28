@@ -2275,86 +2275,78 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   };
 
   const syncFlagsFromSheets = async () => {
-    // 1. بناخد الرابط من اليوزر
-    let rawUrl = window.prompt("من فضلك أدخل رابط شيت الفلاجات (Share Link):");
-
+    let rawUrl = window.prompt("أدخل رابط الشير (Share Link):");
     if (!rawUrl || !rawUrl.includes('google.com')) return;
 
-    // 2. تحويل الرابط تلقائياً لصيغة CSV عشان يتخطى حماية الـ Publish
-    const SHEET_URL = rawUrl.replace(/\/edit.*$/, '/export?format=csv');
+    // 1. استخراج الـ GID من الرابط لو موجود عشان نضمن إنه يفتح الشيت الصح
+    const gidMatch = rawUrl.match(/gid=([0-9]+)/);
+    const gid = gidMatch ? `&gid=${gidMatch[1]}` : '';
+    
+    // 2. تحويل الرابط مع إضافة الـ GID
+    const SHEET_URL = rawUrl.replace(/\/edit.*$/, `/export?format=csv${gid}`);
 
     Papa.parse(SHEET_URL, {
       download: true,
-      header: true,
+      header: false, // هنخليها false عشان إحنا اللي هنحدد العناوين بنفسنا
       skipEmptyLines: true,
-complete: async (results) => {
-        const rows = results.data as any[];
+      complete: async (results) => {
+        const allRows = results.data as any[];
         
-        // 1. طباعة الأعمدة في الكونسول عشان نتأكد الكود شايف إيه
-        if (rows.length > 0) {
-          console.log("Columns found in sheet:", Object.keys(rows[0]));
-        }
+        // 3. البحث عن صف العناوين (Header Row)
+        // بندور على الصف اللي فيه كلمة "Tutor ID" لأنك عندك صف زيادة فوقه
+        const headerIndex = allRows.findIndex(row => 
+          row.some((cell: any) => String(cell).toLowerCase().includes('tutor id'))
+        );
 
-        const targetId = String(details?.id || tutorId).trim();
-        console.log("Searching for Tutor ID:", targetId);
-
-        // 2. فلترة الصفوف - بندور في Tutor ID أو عمود C أو أي عمود فيه كلمة Tutor و ID
-        const tutorRows = rows.filter(r => {
-          // هنجيب كل قيم الصف ونشوف هل فيه أي قيمة بتطابق الـ ID بتاعنا؟
-          // أو ندور في الأعمدة المحتملة
-          const rowTutorId = String(r['Tutor ID'] || r['Tutor ID '] || r['C'] || '').trim();
-          return rowTutorId === targetId;
-        });
-
-        if (tutorRows.length === 0) {
-          // رسالة خطأ متطورة شوية عشان تفهمنا إيه اللي حصل
-          console.log("First row example:", rows[0]);
-          alert(`لم يتم العثور على الـ ID: ${targetId}\nتأكد أن اسم العمود في الشيت هو 'Tutor ID' بالظبط.`);
+        if (headerIndex === -1) {
+          alert("لم يتم العثور على عمود 'Tutor ID'. تأكد أنك في الشيت الصحيح.");
           return;
         }
 
-        // 4. تحويل البيانات لشكل الفلاجات بتاعنا
+        // تحديد العناوين والبيانات الفعلية
+        const headers = allRows[headerIndex].map((h: string) => h.trim());
+        const dataRows = allRows.slice(headerIndex + 1);
+
+        const targetId = String(details?.id || tutorId).trim();
+
+        // 4. فلترة الصفوف بذكاء
+        const tutorIdColIndex = headers.indexOf("Tutor ID");
+        
+        const tutorRows = dataRows.filter(row => 
+          String(row[tutorIdColIndex] || '').trim() === targetId
+        );
+
+        if (tutorRows.length === 0) {
+          alert(`لم يتم العثور على ID: ${targetId} في شيت الفلاجات.`);
+          return;
+        }
+
+        // 5. مابينج للبيانات (Mapping) بناءً على ترتيب الأعمدة اللي في الصورة
         const newFlags = tutorRows.map(row => ({
-          // التاريخ والوقت (العمود E و F)
-          date: `${row['Session Date'] || row['E'] || ''} - ${row['Time Slot'] || row['F'] || ''}`,
-          // نوع العلم (العمود I)
-          type: row['Flag Type'] || row['I'] || 'Yellow Flag', 
-          // حالة الفلاج (العمود M)
-          status: row['Status'] || row['M'] || 'Working on',
-          // السبب (العمود J)
-          reason: row['Flag Comment'] || row['J'] || '-',
-          // رقم الطالب/الجروب (العمود G)
-          studentId: row['Group ID'] || row['G'] || 'N/A', 
+          date: `${row[headers.indexOf("Session Date")] || ''} - ${row[headers.indexOf("Time Slot")] || ''}`,
+          type: row[headers.indexOf("Flag Type")] || 'Yellow Flag', 
+          status: row[headers.indexOf("Status")] || 'Working on',
+          reason: row[headers.indexOf("Flag Comment")] || '-',
+          studentId: row[headers.indexOf("Group ID")] || 'N/A', 
           createdAt: new Date().toISOString(),
           mentorFeedback: "", 
           tutorFeedback: ""
         }));
 
-        // 5. مسح القديم وإضافة الجديد في Firebase
         try {
           const flagsRef = collection(db, 'tutors', tutorId, 'flags');
           const oldDocs = await getDocs(flagsRef);
-          
-          // مسح الفلاجات القديمة أولاً
           await Promise.all(oldDocs.docs.map(d => deleteDoc(d.ref)));
-
-          // إضافة الفلاجات الجديدة
           await Promise.all(newFlags.map(flag => addDoc(flagsRef, flag)));
 
-          alert(`تم بنجاح! تم سحب ${newFlags.length} فلاج من الشيت.`);
+          alert(`تمت المزامنة بنجاح! تم سحب ${newFlags.length} فلاج.`);
           window.location.reload();
         } catch (err) {
-          console.error(err);
-          alert("حدث خطأ أثناء تحديث البيانات في Firebase.");
+          alert("خطأ في Firebase.");
         }
-      },
-      error: (error) => {
-        console.error(error);
-        alert("فشل في قراءة ملف الشيت. تأكد أن الرابط متاح لـ Anyone with the link.");
       }
     });
   };
-
   if (loading) return <Loading />;
   if (!details) return <div className="text-center py-12">{t('noData')}</div>;
 
