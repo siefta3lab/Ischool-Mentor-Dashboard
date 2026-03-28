@@ -2175,52 +2175,50 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
       }
     };
 
-  const syncStudyFromSheets = async (manualUrl?: string) => {
-    // 1. تحديد الرابط: لو يدوي نستخدم الجديد، لو ريفريش نستخدم اللي متسجل في المتصفح
-    let SHEET_URL = manualUrl || localStorage.getItem(`studyUrl_${tutorId}`);
+  const syncStudyFromSheets = async () => {
+    const SHEET_URL = window.prompt("من فضلك أدخل رابط الـ CSV (Publish to Web):");
 
-    // لو مفيش لينك خالص (أول مرة للمدرس ده) نطلبه منه
-    if (!SHEET_URL) {
-        SHEET_URL = window.prompt("من فضلك أدخل رابط شيت إجمالي الدراسة (Publish to Web):");
-        if (!SHEET_URL || !SHEET_URL.includes('google.com')) {
-            if (manualUrl) alert("❌ خطأ: الرابط غير صحيح.");
-            return;
-        }
+    if (!SHEET_URL || !SHEET_URL.includes('google.com')) {
+        alert("❌ خطأ: الرابط غير صحيح.");
+        return;
     }
-
-    // حفظ الرابط عشان الريفريش الجاي
-    localStorage.setItem(`studyUrl_${tutorId}`, SHEET_URL);
 
     Papa.parse(SHEET_URL, {
         download: true,
-        header: true, // شيت الدراسة بيعتمد على أسماء الأعمدة (ID, M1, إلخ)
+        header: true,
         skipEmptyLines: true,
         complete: async (results) => {
             const rows = results.data as any[];
-            const targetId = String(details?.id || tutorId).trim();
+            const targetId = String(details.id).trim();
 
-            // البحث عن الصف الخاص بالمدرس
+            // 1. البحث عن الصف (بنقارن بـ ID مع تجاهل المسافات)
             const currentRow = rows.find(r => String(r.ID || r.id).trim() === targetId);
 
             if (!currentRow) {
-                // بنطلع تنبيه فقط لو المزامنة يدوية، عشان ميزعجش المدرس في الريفريش التلقائي
-                if (manualUrl) alert(`❌ لم يتم العثور على المدرس رقم (${targetId}) في الشيت.`);
+                alert(`❌ لم يتم العثور على المدرس رقم (${targetId}) في الشيت.`);
                 return;
             }
 
             const newCourses: any[] = [];
 
-            // فحص الأعمدة بناءً على الـ Logic بتاعك
+            // 2. فحص كل الأعمدة
             Object.keys(currentRow).forEach(col => {
                 const value = String(currentRow[col]).trim().toLowerCase();
                 
+                // التحقق من حالة الكورس (بناءً على الصورة عندك)
+                // بيدور على "done & published" أو "done"
                 if (value === "done & published" || value === "done") {
+                    
+                    // تنظيف اسم العمود من أي سطر جديد (\n) أو مسافات زيادة
                     const cleanColName = col.replace(/\n/g, ' ').trim();
 
+                    // لو العمود هو "Free"
                     if (cleanColName.toLowerCase() === 'free') {
                         newCourses.push({ name: "Free", grade: "Done" });
                     } 
+                    // لو العمود فيه نمط الكورسات (M1, M2...)
                     else {
+                        // Regex مرن جداً بياخد أي حاجة بتبدأ بـ M وبعدها رقم
                         const match = cleanColName.match(/(M\d+[:\s\d-]*\[.*?\]|M\d+.*)/i);
                         newCourses.push({
                             name: match ? match[0] : cleanColName,
@@ -2231,15 +2229,14 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
             });
 
             if (newCourses.length === 0) {
-                if (manualUrl) alert("ℹ️ لم يتم العثور على كورسات مكتملة للمدرس.");
+                alert("ℹ️ تم العثور على المدرس، لكن لا يوجد أي كورس بحالة 'Done & published' أو 'done'");
                 return;
             }
 
+            // 3. التحديث في Firestore
             try {
                 const coursesRef = collection(db, 'tutors', tutorId, 'courses');
                 const oldDocs = await getDocs(coursesRef);
-                
-                // مسح القديم وإضافة الجديد
                 await Promise.all(oldDocs.docs.map(doc => deleteDoc(doc.ref)));
 
                 await Promise.all(newCourses.map(course => addDoc(coursesRef, {
@@ -2247,14 +2244,10 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                     createdAt: new Date().toISOString()
                 })));
 
-                // لو يدوي بننبه المستخدم وبنعمل ريلود
-                if (manualUrl) {
-                    alert(`✅ مبروك! تم تحديث (${newCourses.length}) كورس بنجاح.`);
-                    window.location.reload();
-                }
-                console.log(`Auto-synced ${newCourses.length} courses.`);
+                alert(`✅ مبروك! تم تحديث (${newCourses.length}) كورس بنجاح.`);
+                window.location.reload();
             } catch (err) {
-                console.error("Firestore update failed", err);
+                alert("❌ فشل تحديث البيانات في Firestore");
             }
         }
     });
