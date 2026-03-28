@@ -2751,6 +2751,100 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
             </div>
           </div>
         </Card>
+
+        {/* E) Total Study Card */}
+        <Card 
+          title={
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center w-full gap-2">
+              <div className="flex items-center gap-2">
+                <span>{t('totalStudy')}</span>
+                <button 
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    syncStudyFromSheets(); 
+                  }}
+                  className="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-[10px] cursor-pointer transition-colors font-bold"
+                >
+                  Sync from Sheets
+                </button>
+              </div>
+
+              {/* إضافة خانة البحث */}
+              <input 
+                type="text"
+                placeholder="Search courses..."
+                value={courseSearch}
+                onChange={(e) => setCourseSearch(e.target.value)}
+                className="px-2 py-1 text-xs border rounded-md focus:outline-none focus:ring-1 focus:ring-[#89CFF0] w-full md:w-40 text-black font-normal"
+                onClick={(e) => e.stopPropagation()} 
+              />
+            </div>
+          } 
+          icon={<BookOpen size={20} />}
+          onAdd={isMentor ? handleAddCourse : undefined}
+        >
+          <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+            {(() => {
+              // 1. الفلترة بناءً على السيرش
+              const filtered = courses.filter(c => 
+                (c.name || "").toLowerCase().includes(courseSearch.toLowerCase())
+              );
+
+              // 2. الترتيب (Free ثم M1, M2...)
+              const sorted = [...filtered].sort((a, b) => {
+                const nameA = (a.name || "").toLowerCase();
+                const nameB = (b.name || "").toLowerCase();
+                if (nameA.includes("free")) return -1;
+                if (nameB.includes("free")) return 1;
+                const matchA = nameA.match(/m(\d+)/);
+                const matchB = nameB.match(/m(\d+)/);
+                if (matchA && matchB) return parseInt(matchA[1]) - parseInt(matchB[1]);
+                return nameA.localeCompare(nameB);
+              });
+
+              if (sorted.length === 0) return <p className="text-center text-gray-400 text-xs py-4">No results found</p>;
+
+              return sorted.map((c) => (
+                <div key={c.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg group border border-transparent hover:border-[#89CFF0]/30 transition-all">
+                  <div className="flex-1">
+                    {isMentor ? (
+                      <input 
+                        value={c.name} 
+                        onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'courses', c.id), { name: e.target.value })}
+                        className="bg-transparent border-none focus:ring-0 p-0 font-bold text-[#0047AB] w-full"
+                        placeholder={t('courseName')}
+                      />
+                    ) : <p className="font-bold text-[#0047AB] text-sm">{c.name || '-'}</p>}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {isMentor ? (
+                      <input 
+                        value={c.grade} 
+                        onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'courses', c.id), { grade: e.target.value })}
+                        className="bg-white border rounded px-2 py-0.5 text-xs w-16 text-center font-bold"
+                        placeholder={t('grade')}
+                      />
+                    ) : <span className="px-2 py-0.5 bg-[#89CFF0]/20 text-[#0047AB] rounded text-[10px] font-bold uppercase">{c.grade || '-'}</span>}
+                    
+                    {isMentor && (
+                      <button 
+                        onClick={() => {
+                          if(window.confirm("Are you sure?")) deleteDoc(doc(db, 'tutors', tutorId, 'courses', c.id));
+                        }} 
+                        className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-opacity"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ));
+            })()}
+          </div>
+        </Card>
+
         {/* F) Flags */}
         <Card 
           title={
