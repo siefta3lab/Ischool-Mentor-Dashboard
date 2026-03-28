@@ -2173,67 +2173,107 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
       }
     };
 
-    // سطر 2174 - بداية فنكشن المزامنة
-    const syncStudyFromSheets = async () => {
-    // 1. هيفتح Pop-up تطلب اللينك
-    const SHEET_URL = window.prompt("من فضلك أدخل رابط الـ CSV (Publish to Web):");
+  const syncStudyFromSheets = async () => {
+      const SHEET_URL = window.prompt("من فضلك أدخل رابط الـ CSV (Publish to Web):");
 
-    // لو المستخدم داس Cancel أو ساب الخانة فاضية، اخرج ومتحملش حاجة
-    if (!SHEET_URL || SHEET_URL.trim() === "") {
-      console.log("تم إلغاء العملية أو الرابط فارغ");
-      return;
-    }
-
-    // 2. كود الـ Parse بياخد اللينك اللي إنت لسه كاتبه في الـ Pop-up
-    Papa.parse(SHEET_URL, {
-      download: true,
-      header: true,
-    complete: async (results) => {
-      const rows = results.data as any[];
-      const currentRow = rows.find(r => r.ID === details.id); 
-
-      if (currentRow) {
-        // 1. تجميع الكورسات الجديدة من الشيت
-        const newCourses = [];
-        Object.keys(currentRow).forEach(col => {
-          if (currentRow[col] === "Done...") {
-            const match = col.match(/(M\d+):\s*(Grade\s*[\d-]*)\s*\[(.*?)\]/);
-            if (match) {
-              newCourses.push({
-                name: `${match[1]} ${match[2]} [${match[3]}]`, // الصيغة الإنجليزية
-                grade: "Done"
-              });
-            } else if (col === "Free") {
-              newCourses.push({ name: "Free", grade: "Done" });
-            }
-          }
-        });
-
-        // 2. مسح الكورسات القديمة من الـ Sub-collection (عشان ميتكرروش)
-        const coursesRef = collection(db, 'tutors', details.id, 'courses');
-        const oldDocs = await getDocs(coursesRef);
-        const deletePromises = oldDocs.docs.map(doc => deleteDoc(doc.ref));
-        await Promise.all(deletePromises);
-
-        // 3. إضافة الكورسات الجديدة واحد واحد (زي ما الصورة متوقعة)
-        const addPromises = newCourses.map(course => addDoc(coursesRef, {
-          ...course,
-          createdAt: new Date().toISOString()
-        }));
-        await Promise.all(addPromises);
-
-        // 4. تحديث الـ Study Plan (الخانات اللي فوق) بالمرة
-        await updateDoc(doc(db, 'tutors', details.id), {
-          "studyPlan.course1": newCourses[0]?.name || '-',
-          "studyPlan.course1Grade": newCourses[0]?.grade || '',
-          "studyPlan.course2": newCourses[1]?.name || '-',
-          "studyPlan.course2Grade": newCourses[1]?.grade || '',
-        });
-
-        alert("تم تحديث إجمالي الدراسة (Total Study) بنجاح!");
+      // 1. التحقق من الرابط
+      if (!SHEET_URL || !SHEET_URL.includes('google.com')) {
+          alert("❌ خطأ: الرابط فارغ أو ليس رابط Google Sheets صحيحة.");
+          return;
       }
-    }
-  });
+
+      if (!SHEET_URL.includes('output=csv')) {
+          alert("⚠️ تنبيه: الرابط قد لا يكون بصيغة CSV. تأكد من اختيار (Comma-separated values) عند النشر.");
+      }
+
+      Papa.parse(SHEET_URL, {
+          download: true,
+          header: true,
+          skipEmptyLines: true,
+          complete: async (results) => {
+              const rows = results.data as any[];
+              console.log("--- فحص البيانات القادمة من الشيت ---");
+              console.log("إجمالي الصفوف المستلمة:", rows.length);
+              
+              if (rows.length === 0) {
+                  alert("❌ الملف مفتوح لكنه فارغ من البيانات!");
+                  return;
+              }
+
+              // طباعة أسماء الأعمدة عشان لو الـ ID مكتوب غلط (مثلاً id سمول)
+              const sheetColumns = Object.keys(rows[0]);
+              console.log("أسماء الأعمدة في ملفك هي:", sheetColumns);
+
+              // 2. البحث عن المدرس باستخدام الـ ID المخصص (details.id)
+              const targetId = String(details.id).trim();
+              const currentRow = rows.find(r => {
+                  // بنجرب نقارن بـ 'ID' أو 'id' أو 'Id' عشان نهرب من وجع الدماغ
+                  const sheetId = r.ID || r.id || r.Id;
+                  return String(sheetId).trim() === targetId;
+              });
+
+              if (!currentRow) {
+                  alert(`❌ لم نجد مدرس بـ ID رقم (${targetId})
+                  
+  الأعمدة المتاحة في ملفك هي: [${sheetColumns.join(', ')}]
+  تأكد أن أحد هذه الأعمدة اسمه ID وأن الرقم موجود فيه.`);
+                  return;
+              }
+
+              console.log("✅ تم العثور على المدرس في الشيت:", currentRow);
+
+              const newCourses: any[] = [];
+              // 3. تحليل الكورسات المنتهية
+              Object.keys(currentRow).forEach(col => {
+                  const value = String(currentRow[col]).trim();
+                  
+                  if (value === "Done...") {
+                      const match = col.match(/(M\d+):\s*(Grade\s*[\d-]*)\s*\[(.*?)\]/);
+                      if (match) {
+                          newCourses.push({
+                              name: `${match[1]} ${match[2]} [${match[3]}]`,
+                              grade: "Done"
+                          });
+                      } else if (col.toLowerCase() === "free") {
+                          newCourses.push({ name: "Free", grade: "Done" });
+                      }
+                  }
+              });
+
+              if (newCourses.length === 0) {
+                  alert("ℹ️ المدرس موجود، لكن لم نجد أي خلية مكتوب فيها بالظبط (Done...)");
+                  return;
+              }
+
+              // 4. التحديث في Firebase
+              try {
+                  const coursesRef = collection(db, 'tutors', tutorId, 'courses');
+                  
+                  // مسح القديم
+                  const oldDocs = await getDocs(coursesRef);
+                  const deletePromises = oldDocs.docs.map(doc => deleteDoc(doc.ref));
+                  await Promise.all(deletePromises);
+
+                  // إضافة الجديد
+                  const addPromises = newCourses.map(course => addDoc(coursesRef, {
+                      ...course,
+                      createdAt: new Date().toISOString()
+                  }));
+                  await Promise.all(addPromises);
+
+                  alert(`✅ مبروك! تم سحب (${newCourses.length}) كورس بنجاح.`);
+                  window.location.reload(); 
+
+              } catch (err: any) {
+                  console.error("Firebase Error:", err);
+                  alert("❌ حدث خطأ أثناء الحفظ في Firebase: " + err.message);
+              }
+          },
+          error: (error) => {
+              console.error("PapaParse Error:", error);
+              alert("❌ فشل البرنامج في قراءة الرابط. تأكد أن الملف (Public) ومنشور كـ CSV.");
+          }
+      });
 };
 
   if (loading) return <Loading />;
