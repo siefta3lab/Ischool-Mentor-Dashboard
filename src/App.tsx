@@ -2274,6 +2274,62 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
     });
   };
 
+  const syncFlagsFromSheets = async () => {
+    const SHEET_URL = window.prompt("من فضلك أدخل رابط شيت الفلاجات (CSV):");
+
+    if (!SHEET_URL || !SHEET_URL.includes('google.com')) return;
+
+    Papa.parse(SHEET_URL, {
+        download: true,
+        header: true,
+        skipEmptyLines: true,
+        complete: async (results) => {
+            const rows = results.data as any[];
+            const targetId = String(details.id).trim();
+
+            // 1. هنجيب كل الصفوف اللي تخص المدرس ده (العمود C هو Tutor ID)
+            // ملاحظة: لو اسم العمود في الشيت "Tutor ID" نكتبه كدة
+            const tutorRows = rows.filter(r => String(r['Tutor ID'] || r['C']).trim() === targetId);
+
+            if (tutorRows.length === 0) {
+                alert("لم يتم العثور على أي فلاجات لهذا المدرس في الشيت.");
+                return;
+            }
+
+            // 2. تحويل البيانات لشكل الفلاجات بتاعنا
+            const newFlags = tutorRows.map(row => ({
+                // وقت الفلاج (العمود E هو التاريخ و F هو الـ Slot)
+                date: `${row['Session Date'] || row['E']} - ${row['Time Slot'] || row['F']}`,
+                // نوع العلم (العمود I هو Flag Type)
+                type: row['Flag Type'] || row['I'], 
+                // حالة الفلاج (العمود M هو Status)
+                status: row['Status'] || row['M'],
+                // السبب (العمود J هو Flag Comment)
+                reason: row['Flag Comment'] || row['J'],
+                // الطالب (العمود G هو Student ID)
+                studentId: row['Group ID'] || row['G'], 
+                createdAt: new Date().toISOString(),
+                mentorFeedback: "", // بنسيبهم فاضيين للمنتور
+                tutorFeedback: ""
+            }));
+
+            // 3. مسح القديم وإضافة الجديد في Firebase
+            try {
+                const flagsRef = collection(db, 'tutors', tutorId, 'flags');
+                const oldDocs = await getDocs(flagsRef);
+                await Promise.all(oldDocs.docs.map(doc => deleteDoc(doc.ref)));
+
+                await Promise.all(newFlags.map(flag => addDoc(flagsRef, flag)));
+
+                alert(`تم مزامنة ${newFlags.length} فلاج بنجاح!`);
+                window.location.reload();
+            } catch (err) {
+                alert("حدث خطأ أثناء حفظ الفلاجات.");
+            }
+        }
+    });
+};
+
   if (loading) return <Loading />;
   if (!details) return <div className="text-center py-12">{t('noData')}</div>;
 
@@ -2776,12 +2832,29 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
         </Card>
 
         {/* F) Flags */}
-        <Card title={t('flags')} icon={<FlagIcon size={20} />} onAdd={isMentor ? handleAddFlag : undefined}>
-          <div className="space-y-6">
+        <Card 
+          title={
+            <div className="flex justify-between items-center w-full">
+              <span>{t('flags')}</span>
+              {isMentor && (
+                <button 
+                  onClick={syncFlagsFromSheets}
+                  className="bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded text-[10px] font-bold transition-colors cursor-pointer"
+                >
+                  Sync Flags
+                </button>
+              )}
+            </div>
+          } 
+          icon={<FlagIcon size={20} />} 
+          onAdd={isMentor ? handleAddFlag : undefined}
+        >
+          <div className="space-y-6 max-h-[600px] overflow-y-auto pr-2">
             {flags.map((f) => (
-              <div key={f.id} className="p-4 border rounded-xl space-y-3 relative group">
+              <div key={f.id} className="p-4 border rounded-xl space-y-3 relative group bg-white shadow-sm">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
+                    {/* نوع العلم - Red or Yellow */}
                     {isMentor ? (
                       <select 
                         value={f.type} 
@@ -2796,52 +2869,68 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                             });
                           }
                         }}
-                        className={`text-xs font-bold uppercase rounded-full px-3 py-1 border-none focus:ring-0 ${f.type === 'red' ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600'}`}
+                        className={`text-[10px] font-bold uppercase rounded-full px-2 py-0.5 border-none focus:ring-0 cursor-pointer ${f.type?.toLowerCase().includes('red') ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600'}`}
                       >
-                        <option value="red">{t('red')}</option>
-                        <option value="yellow">{t('yellow')}</option>
+                        <option value="red">Red Flag</option>
+                        <option value="yellow">Yellow Flag</option>
                       </select>
                     ) : (
-                      <span className={`text-xs font-bold uppercase rounded-full px-3 py-1 ${f.type === 'red' ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600'}`}>
-                        {t(f.type)}
+                      <span className={`text-[10px] font-bold uppercase rounded-full px-2 py-0.5 ${f.type?.toLowerCase().includes('red') ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600'}`}>
+                        {f.type}
                       </span>
                     )}
+
+                    {/* الحالة - Status القادمة من العمود M */}
                     {isMentor ? (
                       <select 
                         value={f.status} 
                         onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'flags', f.id), { status: e.target.value })}
-                        className="text-xs bg-gray-100 rounded-full px-3 py-1 border-none focus:ring-0"
+                        className="text-[10px] bg-gray-100 rounded-full px-2 py-0.5 border-none focus:ring-0 cursor-pointer"
                       >
-                        <option value="done">{t('done')}</option>
-                        <option value="cancel">{t('canceled')}</option>
-                        <option value="in progress">{t('inProgress')}</option>
+                        <option value="Done">Done</option>
+                        <option value="Working on">Working on</option>
+                        <option value="We need to remove Flag">Remove Flag</option>
+                        <option value="First month">First month</option>
                       </select>
                     ) : (
-                      <span className="text-xs bg-gray-100 rounded-full px-3 py-1 text-gray-600">
-                        {t(f.status === 'in progress' ? 'inProgress' : f.status === 'cancel' ? 'canceled' : 'done')}
+                      <span className="text-[10px] bg-gray-100 rounded-full px-2 py-0.5 text-gray-600">
+                        {f.status || 'Pending'}
                       </span>
                     )}
                   </div>
-                  <span className="text-[10px] text-gray-400 font-mono">{new Date(f.date).toLocaleDateString()}</span>
+                  {/* التاريخ والـ Slot من العمود E و F */}
+                  <span className="text-[10px] text-gray-400 font-mono">{f.date}</span>
                 </div>
                 
-                {isMentor ? (
-                  <textarea 
-                    value={f.reason} 
-                    onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'flags', f.id), { reason: e.target.value })}
-                    className="w-full text-sm border-none focus:ring-0 p-0 bg-transparent"
-                    placeholder={t('reason')}
-                  />
-                ) : <p className="text-sm text-gray-700">{f.reason}</p>}
+                {/* خانة الـ Student ID الجديدة من العمود G */}
+                <div className="flex items-center gap-2 bg-blue-50/50 p-1.5 rounded-lg">
+                  <span className="text-[10px] font-bold text-blue-400 uppercase tracking-tighter">Student ID:</span>
+                  <span className="text-xs font-semibold text-blue-700">{f.studentId || 'N/A'}</span>
+                </div>
 
-                <div className="grid grid-cols-2 gap-4 pt-2 border-t border-gray-100">
+                {/* السبب - الجاي من العمود J */}
+                <div className="bg-gray-50 p-2 rounded-lg border-r-2 border-gray-200">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">السبب:</p>
+                  {isMentor ? (
+                    <textarea 
+                      value={f.reason} 
+                      onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'flags', f.id), { reason: e.target.value })}
+                      className="w-full text-sm border-none focus:ring-0 p-0 bg-transparent resize-none leading-relaxed"
+                      placeholder={t('reason')}
+                      rows={2}
+                    />
+                  ) : <p className="text-sm text-gray-700 leading-relaxed">{f.reason}</p>}
+                </div>
+
+                {/* الفيدباك */}
+                <div className="grid grid-cols-2 gap-4 pt-2 border-t border-dashed border-gray-100">
                   <div>
                     <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">{t('tutorFeedback')}</p>
                     {(!isMentor) ? (
                       <input 
                         value={f.tutorFeedback} 
                         onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'flags', f.id), { tutorFeedback: e.target.value })}
-                        className="w-full text-xs border rounded px-2 py-1"
+                        className="w-full text-xs border rounded px-2 py-1 focus:ring-1 focus:ring-blue-100 outline-none"
                         placeholder="..."
                       />
                     ) : <p className="text-xs text-gray-600">{f.tutorFeedback || '-'}</p>}
@@ -2852,22 +2941,25 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                       <input 
                         value={f.mentorFeedback} 
                         onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'flags', f.id), { mentorFeedback: e.target.value })}
-                        className="w-full text-xs border rounded px-2 py-1"
+                        className="w-full text-xs border rounded px-2 py-1 focus:ring-1 focus:ring-blue-100 outline-none"
                         placeholder="..."
                       />
                     ) : <p className="text-xs text-gray-600">{f.mentorFeedback || '-'}</p>}
                   </div>
                 </div>
 
+                {/* زر الحذف */}
                 {isMentor && (
                   <button 
                     onClick={async () => {
-                      await deleteDoc(doc(db, 'tutors', tutorId, 'flags', f.id));
-                      await updateDoc(doc(db, 'tutors', tutorId), {
-                        [f.type === 'red' ? 'redFlags' : 'yellowFlags']: increment(-1)
-                      });
+                      if(window.confirm("حذف الفلاج؟")){
+                        await deleteDoc(doc(db, 'tutors', tutorId, 'flags', f.id));
+                        await updateDoc(doc(db, 'tutors', tutorId), {
+                          [f.type === 'red' ? 'redFlags' : 'yellowFlags']: increment(-1)
+                        });
+                      }
                     }} 
-                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-red-300 hover:text-red-500"
+                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-red-300 hover:text-red-500 transition-opacity"
                   >
                     <X size={14} />
                   </button>
