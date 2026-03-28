@@ -2275,60 +2275,75 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   };
 
   const syncFlagsFromSheets = async () => {
-    const SHEET_URL = window.prompt("من فضلك أدخل رابط شيت الفلاجات (CSV):");
+    // 1. بناخد الرابط من اليوزر
+    let rawUrl = window.prompt("من فضلك أدخل رابط شيت الفلاجات (Share Link):");
 
-    if (!SHEET_URL || !SHEET_URL.includes('google.com')) return;
+    if (!rawUrl || !rawUrl.includes('google.com')) return;
+
+    // 2. تحويل الرابط تلقائياً لصيغة CSV عشان يتخطى حماية الـ Publish
+    const SHEET_URL = rawUrl.replace(/\/edit.*$/, '/export?format=csv');
 
     Papa.parse(SHEET_URL, {
-        download: true,
-        header: true,
-        skipEmptyLines: true,
-        complete: async (results) => {
-            const rows = results.data as any[];
-            const targetId = String(details.id).trim();
+      download: true,
+      header: true,
+      skipEmptyLines: true,
+      complete: async (results) => {
+        const rows = results.data as any[];
+        
+        // التأكد من وجود ID المدرس (targetId)
+        const targetId = String(details?.id || tutorId).trim();
 
-            // 1. هنجيب كل الصفوف اللي تخص المدرس ده (العمود C هو Tutor ID)
-            // ملاحظة: لو اسم العمود في الشيت "Tutor ID" نكتبه كدة
-            const tutorRows = rows.filter(r => String(r['Tutor ID'] || r['C']).trim() === targetId);
+        // 3. فلترة الصفوف بناءً على Tutor ID (العمود C)
+        const tutorRows = rows.filter(r => 
+          String(r['Tutor ID'] || r['C'] || '').trim() === targetId
+        );
 
-            if (tutorRows.length === 0) {
-                alert("لم يتم العثور على أي فلاجات لهذا المدرس في الشيت.");
-                return;
-            }
-
-            // 2. تحويل البيانات لشكل الفلاجات بتاعنا
-            const newFlags = tutorRows.map(row => ({
-                // وقت الفلاج (العمود E هو التاريخ و F هو الـ Slot)
-                date: `${row['Session Date'] || row['E']} - ${row['Time Slot'] || row['F']}`,
-                // نوع العلم (العمود I هو Flag Type)
-                type: row['Flag Type'] || row['I'], 
-                // حالة الفلاج (العمود M هو Status)
-                status: row['Status'] || row['M'],
-                // السبب (العمود J هو Flag Comment)
-                reason: row['Flag Comment'] || row['J'],
-                // الطالب (العمود G هو Student ID)
-                studentId: row['Group ID'] || row['G'], 
-                createdAt: new Date().toISOString(),
-                mentorFeedback: "", // بنسيبهم فاضيين للمنتور
-                tutorFeedback: ""
-            }));
-
-            // 3. مسح القديم وإضافة الجديد في Firebase
-            try {
-                const flagsRef = collection(db, 'tutors', tutorId, 'flags');
-                const oldDocs = await getDocs(flagsRef);
-                await Promise.all(oldDocs.docs.map(doc => deleteDoc(doc.ref)));
-
-                await Promise.all(newFlags.map(flag => addDoc(flagsRef, flag)));
-
-                alert(`تم مزامنة ${newFlags.length} فلاج بنجاح!`);
-                window.location.reload();
-            } catch (err) {
-                alert("حدث خطأ أثناء حفظ الفلاجات.");
-            }
+        if (tutorRows.length === 0) {
+          alert("لم يتم العثور على أي فلاجات لهذا المدرس في الشيت. تأكد من أن ID المدرس في الشيت مطابق.");
+          return;
         }
+
+        // 4. تحويل البيانات لشكل الفلاجات بتاعنا
+        const newFlags = tutorRows.map(row => ({
+          // التاريخ والوقت (العمود E و F)
+          date: `${row['Session Date'] || row['E'] || ''} - ${row['Time Slot'] || row['F'] || ''}`,
+          // نوع العلم (العمود I)
+          type: row['Flag Type'] || row['I'] || 'Yellow Flag', 
+          // حالة الفلاج (العمود M)
+          status: row['Status'] || row['M'] || 'Working on',
+          // السبب (العمود J)
+          reason: row['Flag Comment'] || row['J'] || '-',
+          // رقم الطالب/الجروب (العمود G)
+          studentId: row['Group ID'] || row['G'] || 'N/A', 
+          createdAt: new Date().toISOString(),
+          mentorFeedback: "", 
+          tutorFeedback: ""
+        }));
+
+        // 5. مسح القديم وإضافة الجديد في Firebase
+        try {
+          const flagsRef = collection(db, 'tutors', tutorId, 'flags');
+          const oldDocs = await getDocs(flagsRef);
+          
+          // مسح الفلاجات القديمة أولاً
+          await Promise.all(oldDocs.docs.map(d => deleteDoc(d.ref)));
+
+          // إضافة الفلاجات الجديدة
+          await Promise.all(newFlags.map(flag => addDoc(flagsRef, flag)));
+
+          alert(`تم بنجاح! تم سحب ${newFlags.length} فلاج من الشيت.`);
+          window.location.reload();
+        } catch (err) {
+          console.error(err);
+          alert("حدث خطأ أثناء تحديث البيانات في Firebase.");
+        }
+      },
+      error: (error) => {
+        console.error(error);
+        alert("فشل في قراءة ملف الشيت. تأكد أن الرابط متاح لـ Anyone with the link.");
+      }
     });
-};
+  };
 
   if (loading) return <Loading />;
   if (!details) return <div className="text-center py-12">{t('noData')}</div>;
