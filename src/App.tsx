@@ -2278,64 +2278,44 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
     let rawUrl = window.prompt("أدخل رابط الشير (Share Link):");
     if (!rawUrl || !rawUrl.includes('google.com')) return;
 
+    // تحويل الرابط مع التأكد من الـ GID للشيت الحالي
     const gidMatch = rawUrl.match(/gid=([0-9]+)/);
     const gid = gidMatch ? `&gid=${gidMatch[1]}` : '';
     const SHEET_URL = rawUrl.replace(/\/edit.*$/, `/export?format=csv${gid}`);
 
     Papa.parse(SHEET_URL, {
       download: true,
-      header: false, // هنقرأ البيانات خام ونعالجها يدوي
+      header: false, // مش عاوزين عناوين، هنشتغل بالأرقام
       skipEmptyLines: true,
       complete: async (results) => {
-        const allRows = results.data as any[];
+        const rows = results.data as any[];
         
-        // 1. البحث عن الصف اللي فيه العناوين الفعلية
-        let headerRowIndex = -1;
-        for (let i = 0; i < allRows.length; i++) {
-          const isHeader = allRows[i].some((cell: any) => 
-            String(cell).trim().toLowerCase() === 'tutor id'
-          );
-          if (isHeader) {
-            headerRowIndex = i;
-            break;
-          }
-        }
-
-        if (headerRowIndex === -1) {
-          console.log("Full Data Received:", allRows);
-          alert("تعذر تحديد جدول البيانات. تأكد أن عمود 'Tutor ID' موجود بوضوح في الشيت.");
-          return;
-        }
-
-        // 2. استخراج العناوين والبيانات
-        const headers = allRows[headerRowIndex].map((h: any) => String(h || '').trim());
-        const dataRows = allRows.slice(headerRowIndex + 1);
-
-        const tutorIdIndex = headers.findIndex(h => h.toLowerCase() === 'tutor id');
+        // targetId هو الـ ID بتاع المدرس اللي إحنا فاتحينه دلوقتي
         const targetId = String(details?.id || tutorId).trim();
 
-        // 3. فلترة المدرس
-        const tutorRows = dataRows.filter(row => 
-          String(row[tutorIdIndex] || '').trim() === targetId
+        // فلترة الصفوف بناءً على العمود C (الترتيب رقم 2 في البرمجة لأننا بنبدأ من 0)
+        const tutorRows = rows.filter(row => 
+          String(row[2] || '').trim() === targetId
         );
 
         if (tutorRows.length === 0) {
-          alert(`تم العثور على الجدول، ولكن لم يتم العثور على المدرس ID: ${targetId}`);
+          alert(`لم يتم العثور على ID: ${targetId} في العمود C.`);
           return;
         }
 
-        // 4. مابينج للأعمدة بناءً على العناوين اللي لقيناها
-        const getVal = (row: any, colName: string) => {
-          const idx = headers.findIndex(h => h.toLowerCase() === colName.toLowerCase());
-          return idx !== -1 ? row[idx] : '';
-        };
-
+        // بناء البيانات حسب الحروف اللي حددناها من الصورة:
+        // C=2, E=4, F=5, G=6, I=8, J=9, M=12
         const newFlags = tutorRows.map(row => ({
-          date: `${getVal(row, 'Session Date')} - ${getVal(row, 'Time Slot')}`,
-          type: getVal(row, 'Flag Type') || 'Yellow Flag', 
-          status: getVal(row, 'Status') || 'Working on',
-          reason: getVal(row, 'Flag Comment') || '-',
-          studentId: getVal(row, 'Group ID') || 'N/A', 
+          // التاريخ (E) + السلوت (F)
+          date: `${row[4] || ''} - ${row[5] || ''}`,
+          // نوع الفلاج (I)
+          type: row[8] || 'Yellow Flag', 
+          // الحالة (M)
+          status: row[12] || 'Working on',
+          // السبب (J)
+          reason: row[9] || '-',
+          // رقم الطالب أو الجروب (G)
+          studentId: row[6] || 'N/A', 
           createdAt: new Date().toISOString(),
           mentorFeedback: "", 
           tutorFeedback: ""
@@ -2344,13 +2324,16 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
         try {
           const flagsRef = collection(db, 'tutors', tutorId, 'flags');
           const oldDocs = await getDocs(flagsRef);
+          
+          // مسح القديم
           await Promise.all(oldDocs.docs.map(d => deleteDoc(d.ref)));
+          // إضافة الجديد
           await Promise.all(newFlags.map(flag => addDoc(flagsRef, flag)));
 
-          alert(`نجاح! تم سحب ${newFlags.length} فلاج.`);
+          alert(`تمام يا سيف! سحبنا ${newFlags.length} فلاج بنجاح.`);
           window.location.reload();
         } catch (err) {
-          alert("خطأ في تحديث قاعدة البيانات.");
+          alert("في مشكلة حصلت وأنا برفع الداتا لـ Firebase.");
         }
       }
     });
