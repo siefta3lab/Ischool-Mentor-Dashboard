@@ -2278,12 +2278,8 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
     let rawUrl = window.prompt("من فضلك أدخل رابط الشير (تأكد أنك واقف على تاب الفلاجات):");
     if (!rawUrl || !rawUrl.includes('google.com')) return;
 
-    // 1. استخراج الـ GID من الرابط
-    // لو الرابط فيه gid=1038019946 مثلاً، الكود هياخده ويضيفه لطلب الـ CSV
     const gidMatch = rawUrl.match(/gid=([0-9]+)/);
     const gidParam = gidMatch ? `&gid=${gidMatch[1]}` : '';
-    
-    // 2. بناء رابط التصدير مع تحديد التاب بدقة
     const SHEET_URL = rawUrl.replace(/\/edit.*$/, `/export?format=csv${gidParam}`);
 
     Papa.parse(SHEET_URL, {
@@ -2292,44 +2288,56 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
       skipEmptyLines: true,
       complete: async (results) => {
         const rows = results.data as any[];
-        
-        // طباعة أول صف في الكونسول للتأكد إحنا في أي شيت (اختياري للمتابعة)
-        console.log("Current Sheet First Row:", rows[0]);
-
         const targetId = String(details?.id || tutorId).trim();
 
-        // 3. الفلترة من العمود C (Index 2)
+        // 1. فلترة المدرس من العمود C
         const tutorRows = rows.filter(row => 
           String(row[2] || '').trim() === targetId
         );
 
         if (tutorRows.length === 0) {
-          alert(`لم يتم العثور على ID: ${targetId} في التاب الحالية.\nتأكد أن الرابط يحتوي على gid التاب الصحيحة.`);
+          alert(`لم يتم العثور على ID: ${targetId} في التاب الحالية.`);
           return;
         }
 
-        // 4. سحب البيانات بالأعمدة (C=2, E=4, F=5, G=6, I=8, J=9, M=12)
+        // 2. تحويل البيانات وتصحيح نوع الفلاج (العمود I هو رقم 8)
         const newFlags = tutorRows.map(row => ({
           date: `${row[4] || ''} - ${row[5] || ''}`,
+          // التعديل هنا: يقرأ القيمة من الشيت مباشرة (Yellow أو Red)
           type: row[8] || 'Yellow Flag', 
           status: row[12] || 'Working on',
           reason: row[9] || '-',
           studentId: row[6] || 'N/A', 
           createdAt: new Date().toISOString(),
-          mentorFeedback: "", 
-          tutorFeedback: ""
+          // هنضيف حقل التاريخ الخام للترتيب فقط
+          rawDate: new Date(row[4] || 0).getTime() 
         }));
+
+        // 3. الترتيب من الأحدث للأقدم (بناءً على تاريخ الجلسة في العمود E)
+        newFlags.sort((a, b) => b.rawDate - a.rawDate);
 
         try {
           const flagsRef = collection(db, 'tutors', tutorId, 'flags');
           const oldDocs = await getDocs(flagsRef);
+          
+          // مسح القديم
           await Promise.all(oldDocs.docs.map(d => deleteDoc(d.ref)));
-          await Promise.all(newFlags.map(flag => addDoc(flagsRef, flag)));
+          
+          // إضافة الجديد المرتب
+          for (const flag of newFlags) {
+            // بنشيل rawDate قبل الرفع عشان ميبقاش فيه داتا زيادة في Firebase
+            const { rawDate, ...flagToSave } = flag;
+            await addDoc(flagsRef, {
+                ...flagToSave,
+                mentorFeedback: "", 
+                tutorFeedback: ""
+            });
+          }
 
-          alert(`بطل! سحبنا ${newFlags.length} فلاج من التاب الصحيحة.`);
+          alert(`تمام يا سيف! سحبنا ${newFlags.length} فلاج بنجاح وبترتيب الأحدث.`);
           window.location.reload();
         } catch (err) {
-          alert("خطأ في تحديث البيانات.");
+          alert("حدث خطأ أثناء تحديث Firebase.");
         }
       }
     });
