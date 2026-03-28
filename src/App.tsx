@@ -2287,19 +2287,29 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
       download: true,
       header: true,
       skipEmptyLines: true,
-      complete: async (results) => {
+complete: async (results) => {
         const rows = results.data as any[];
         
-        // التأكد من وجود ID المدرس (targetId)
-        const targetId = String(details?.id || tutorId).trim();
+        // 1. طباعة الأعمدة في الكونسول عشان نتأكد الكود شايف إيه
+        if (rows.length > 0) {
+          console.log("Columns found in sheet:", Object.keys(rows[0]));
+        }
 
-        // 3. فلترة الصفوف بناءً على Tutor ID (العمود C)
-        const tutorRows = rows.filter(r => 
-          String(r['Tutor ID'] || r['C'] || '').trim() === targetId
-        );
+        const targetId = String(details?.id || tutorId).trim();
+        console.log("Searching for Tutor ID:", targetId);
+
+        // 2. فلترة الصفوف - بندور في Tutor ID أو عمود C أو أي عمود فيه كلمة Tutor و ID
+        const tutorRows = rows.filter(r => {
+          // هنجيب كل قيم الصف ونشوف هل فيه أي قيمة بتطابق الـ ID بتاعنا؟
+          // أو ندور في الأعمدة المحتملة
+          const rowTutorId = String(r['Tutor ID'] || r['Tutor ID '] || r['C'] || '').trim();
+          return rowTutorId === targetId;
+        });
 
         if (tutorRows.length === 0) {
-          alert("لم يتم العثور على أي فلاجات لهذا المدرس في الشيت. تأكد من أن ID المدرس في الشيت مطابق.");
+          // رسالة خطأ متطورة شوية عشان تفهمنا إيه اللي حصل
+          console.log("First row example:", rows[0]);
+          alert(`لم يتم العثور على الـ ID: ${targetId}\nتأكد أن اسم العمود في الشيت هو 'Tutor ID' بالظبط.`);
           return;
         }
 
