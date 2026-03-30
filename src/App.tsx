@@ -2291,12 +2291,9 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   };
 
   const syncFlagsFromSheets = async (savedUrl?: string) => {
-  // 1. لو فيه لينك محفوظ (من الـ reload) استخدمه، لو مفيش اطلب لينك جديد (من زرار الـ sync)
   let rawUrl = savedUrl || window.prompt("من فضلك أدخل رابط الشير (تأكد أنك واقف على تاب الفلاجات):");
-  
   if (!rawUrl || !rawUrl.includes('google.com')) return;
 
-  // 2. استخراج الـ GID لضمان سحب البيانات من التاب اللي أنت واقف عليها
   const gidMatch = rawUrl.match(/gid=([0-9]+)/);
   const gidParam = gidMatch ? `&gid=${gidMatch[1]}` : '';
   const SHEET_URL = rawUrl.replace(/\/edit.*$/, `/export?format=csv${gidParam}`);
@@ -2307,9 +2304,10 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
     skipEmptyLines: true,
     complete: async (results) => {
       const rows = results.data as any[];
-      const currentTutorId = String(details?.id || tutorId).trim();
+      
+      // التعديل 1: نستخدم tutorId اللي جاي من الـ props مباشرة لضمان الدقة
+      const currentTutorId = String(tutorId).trim();
 
-      // 3. فلترة الصفوف الخاصة بالمدرس
       const tutorRows = rows.filter(row => 
         String(row[2] || '').trim() === currentTutorId
       );
@@ -2332,18 +2330,27 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
       newFlags.sort((a, b) => b.rawDate - a.rawDate);
 
       try {
-        // 4. حفظ اللينك في Firebase عشان يفضل موجود للمدرس ده (ده اللي هيحل مشكلة الـ reload)
+        // التعديل 2: التأكد من المسار الصحيح للمدرس
         const tutorRef = doc(db, 'tutors', currentTutorId);
+        
+        // حفظ اللينك في الدوكيومنت الأساسي
         await updateDoc(tutorRef, {
           flagsSheetLink: rawUrl
         });
 
-        // 5. تحديث الـ Flags في Firebase
+        // التعديل 3: تحديث الـ local state عشان اللينك يظهر فوراً في البيانات
+        if (details) {
+            setDetails({ ...details, flagsSheetLink: rawUrl });
+        }
+
+        // 5. تحديث الـ Flags في الـ Sub-collection
         const flagsRef = collection(db, 'tutors', currentTutorId, 'flags');
         const oldDocs = await getDocs(flagsRef);
         
+        // مسح القديم
         await Promise.all(oldDocs.docs.map(d => deleteDoc(d.ref)));
         
+        // إضافة الجديد
         for (const flag of newFlags) {
           const { rawDate, ...flagToSave } = flag;
           await addDoc(flagsRef, {
@@ -2353,14 +2360,13 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
           });
         }
 
-        // لو التحديث يدوي (مش من الـ reload) طلع التنبيه واعمل ريفريش
         if (!savedUrl) {
-          alert(`عاش يا سيف! تم مزامنة ${newFlags.length} فلاج بنجاح.`);
-          window.location.reload();
+          alert(`تمت المزامنة بنجاح! اللينك اتحفظ والفلاجات اتحدثت.`);
+          // شيلنا الـ reload عشان الـ onSnapshot هتعمل الواجب لوحدها والدنيا تبقى أسرع
         }
       } catch (err) {
-        console.error(err);
-        if (!savedUrl) alert("حدث خطأ أثناء تحديث البيانات في Firebase.");
+        console.error("Firebase Update Error:", err);
+        if (!savedUrl) alert("فشل في حفظ اللينك في قاعدة البيانات.");
       }
     }
   });
