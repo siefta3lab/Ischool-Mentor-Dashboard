@@ -2291,9 +2291,11 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   };
 
   const syncFlagsFromSheets = async (savedUrl?: string) => {
+  // 1. طلب اللينك أو استخدام المحفوظ
   let rawUrl = savedUrl || window.prompt("من فضلك أدخل رابط الشير (تأكد أنك واقف على تاب الفلاجات):");
   if (!rawUrl || !rawUrl.includes('google.com')) return;
 
+  // استخراج الـ GID لتحميل التاب الصحيحة
   const gidMatch = rawUrl.match(/gid=([0-9]+)/);
   const gidParam = gidMatch ? `&gid=${gidMatch[1]}` : '';
   const SHEET_URL = rawUrl.replace(/\/edit.*$/, `/export?format=csv${gidParam}`);
@@ -2305,18 +2307,20 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
     complete: async (results) => {
       const rows = results.data as any[];
       
-      // التعديل 1: نستخدم tutorId اللي جاي من الـ props مباشرة لضمان الدقة
+      // tutorId هو الرقم اللي إحنا بندور بيه (مثلاً 1111)
       const currentTutorId = String(tutorId).trim();
 
+      // 2. فلترة الصفوف من الشيت بناءً على الـ Tutor ID (العمود الثالث index 2)
       const tutorRows = rows.filter(row => 
         String(row[2] || '').trim() === currentTutorId
       );
 
       if (tutorRows.length === 0) {
-        if (!savedUrl) alert(`لم يتم العثور على ID: ${currentTutorId} في هذه التاب.`);
+        if (!savedUrl) alert(`لم يتم العثور على Tutor ID: ${currentTutorId} في هذا الشيت.`);
         return;
       }
 
+      // تجهيز الداتا الجديدة
       const newFlags = tutorRows.map(row => ({
         date: `${row[4] || ''} - ${row[5] || ''}`,
         type: String(row[8] || 'Yellow Flag').trim(),
@@ -2330,21 +2334,33 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
       newFlags.sort((a, b) => b.rawDate - a.rawDate);
 
       try {
-        // التعديل 2: التأكد من المسار الصحيح للمدرس
-        const tutorRef = doc(db, 'tutors', currentTutorId);
-        
-        // حفظ اللينك في الدوكيومنت الأساسي
+        // --- الجزء الأهم: البحث عن الـ UID باستخدام الـ Tutor ID ---
+        const tutorsRef = collection(db, 'tutors');
+        const q = query(tutorsRef, where("id", "==", currentTutorId)); 
+        const querySnapshot = await getDocs(q);
+
+        if (querySnapshot.empty) {
+          if (!savedUrl) alert(`عذراً، المدرس رقم ${currentTutorId} غير موجود في السيستم.`);
+          return;
+        }
+
+        // الحصول على الـ Document الحقيقي (الـ UID)
+        const tutorDoc = querySnapshot.docs[0];
+        const tutorUID = tutorDoc.id; // الحروف المعقدة في الفايربيز
+        const tutorRef = tutorDoc.ref;
+
+        // 3. تحديث اللينك في الدوكيومنت الأساسي للمدرس
         await updateDoc(tutorRef, {
           flagsSheetLink: rawUrl
         });
 
-        // التعديل 3: تحديث الـ local state عشان اللينك يظهر فوراً في البيانات
+        // تحديث الـ State محلياً عشان يظهر في البيانات الأساسية فوراً
         if (details) {
-            setDetails({ ...details, flagsSheetLink: rawUrl });
+          setDetails({ ...details, flagsSheetLink: rawUrl });
         }
 
-        // 5. تحديث الـ Flags في الـ Sub-collection
-        const flagsRef = collection(db, 'tutors', currentTutorId, 'flags');
+        // 4. تحديث كوليكشن الفلاجات (داخل الـ UID اللي لقيناه)
+        const flagsRef = collection(db, 'tutors', tutorUID, 'flags');
         const oldDocs = await getDocs(flagsRef);
         
         // مسح القديم
@@ -2361,12 +2377,11 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
         }
 
         if (!savedUrl) {
-          alert(`تمت المزامنة بنجاح! اللينك اتحفظ والفلاجات اتحدثت.`);
-          // شيلنا الـ reload عشان الـ onSnapshot هتعمل الواجب لوحدها والدنيا تبقى أسرع
+          alert(`تمام يا سيف! تم تحديث بيانات المدرس ${currentTutorId} بنجاح.`);
         }
       } catch (err) {
-        console.error("Firebase Update Error:", err);
-        if (!savedUrl) alert("فشل في حفظ اللينك في قاعدة البيانات.");
+        console.error("Firebase Sync Error:", err);
+        if (!savedUrl) alert("حدث خطأ أثناء الوصول لبيانات المدرس في Firebase.");
       }
     }
   });
