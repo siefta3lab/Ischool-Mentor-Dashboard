@@ -2034,8 +2034,8 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   });
 
   useEffect(() => {
-  // 1. العلم ده (Flag) مهم جداً عشان نمنع الحلقة المفرغة
-  let hasSyncedInitialData = false;
+  // 1. العلم ده (Flag) هو السر.. بيبدأ بـ false
+  let hasSyncedThisSession = false;
 
   const unsubDetails = onSnapshot(doc(db, 'tutors', tutorId), (docSnap) => {
     if (docSnap.exists()) {
@@ -2043,19 +2043,17 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
       setDetails(data as TutorDetails);
       setEditData(data);
 
-      // --- الجزء الذكي المعدل ---
-      // بنعمل Sync فقط لو دي أول مرة الداتا تحمل (بناءً على الـ Flag اللي فوق)
-      if (!hasSyncedInitialData) {
+      // 2. بنشيك: لو معانا لينكات ولسه مخلصناش أول مراجعة (Sync)
+      if (!hasSyncedThisSession) {
         if (data.flagsSheetLink) {
           syncFlagsFromSheets(data.flagsSheetLink);
         }
         if (data.studySheetLink) {
           syncStudyFromSheets(data.studySheetLink);
         }
-        // نرفع العلم عشان المرة الجاية لما Firebase يتحدث ميعدش الـ Sync من نفسه
-        hasSyncedInitialData = true; 
+        // 3. نرفع العلم لـ true.. كده مش هيدخل هنا تاني لحد ما تعمل Refresh يدوي للمتصفح
+        hasSyncedThisSession = true; 
       }
-      // -------------------------
     }
     setLoading(false);
   }, (error) => {
@@ -2063,19 +2061,11 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
     handleFirestoreError(error, OperationType.GET, `tutors/${tutorId}`);
   });
 
-  // ... (باقي الـ unsubs زي ما هما من غير تغيير)
+  // باقي الـ listeners (unsubProfile, unsubFlags, إلخ...) سيبهم زي ما هما بالظبط
   const unsubProfile = onSnapshot(doc(db, 'users', tutorId), (doc) => {
     if (doc.exists()) setTutorProfile(doc.data() as UserProfile);
   });
-
-  const unsubVacations = onSnapshot(collection(db, 'tutors', tutorId, 'vacations'), (snap) => {
-    setVacations(snap.docs.map(d => ({ id: d.id, ...d.data() } as Vacation)));
-  });
-
-  const unsubReports = onSnapshot(collection(db, 'tutors', tutorId, 'qualityReports'), (snap) => {
-    setReports(snap.docs.map(d => ({ id: d.id, ...d.data() } as QualityReport)));
-  });
-
+  
   const unsubFlags = onSnapshot(collection(db, 'tutors', tutorId, 'flags'), (snap) => {
     setFlags(snap.docs.map(d => ({ id: d.id, ...d.data() } as Flag)));
   });
@@ -2086,20 +2076,16 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
 
   registerListener(unsubDetails);
   registerListener(unsubProfile);
-  registerListener(unsubVacations);
-  registerListener(unsubReports);
   registerListener(unsubFlags);
   registerListener(unsubCourses);
 
   return () => {
     unsubDetails();
     unsubProfile();
-    unsubVacations();
-    unsubReports();
     unsubFlags();
     unsubCourses();
   };
-}, [tutorId]); // الـ tutorId هو الاعتماد الوحيد
+}, [tutorId]);
 
   const handleSaveDetails = async () => {
     try {
