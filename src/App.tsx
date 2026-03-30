@@ -2034,79 +2034,69 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   });
 
   useEffect(() => {
-  if (!tutorId) return;
+    // 1. مراقب بيانات المدرس الأساسية (عشان نجيب منها اللينكات)
+    const unsubDetails = onSnapshot(doc(db, 'tutors', tutorId), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setDetails(data as TutorDetails);
+        setEditData(data);
 
-  // 1. العلم ده بيضمن إن المزامنة تحصل مرة واحدة بس مع كل "دخلة" لصفحة المدرس
-  let isInitialSyncDone = false;
-
-  const unsubDetails = onSnapshot(doc(db, 'tutors', tutorId), (docSnap) => {
-    if (docSnap.exists()) {
-      const data = docSnap.data();
-      setDetails(data as TutorDetails);
-      setEditData(data);
-
-      // --- المزامنة التلقائية الصارمة ---
-      if (!isInitialSyncDone) {
-        // لو فيه لينك للفلاجات.. حدثه. لو مفيش.. فضي الـ State فوراً عشان ميعرضش القديم
+        // --- الجزء الذكي: المزامنة التلقائية عند وجود لينكات محفوظة ---
+        // بنشغلهم فقط لو الداتا لسه بتحمل أول مرة أو اللينكات موجودة
         if (data.flagsSheetLink) {
           syncFlagsFromSheets(data.flagsSheetLink);
-        } else {
-          setFlags([]); 
         }
-
-        // لو فيه لينك للكورسات.. حدثه. لو مفيش.. فضي الـ State
         if (data.studySheetLink) {
           syncStudyFromSheets(data.studySheetLink);
-        } else {
-          setCourses([]);
         }
-
-        isInitialSyncDone = true; // اقفل الباب.. مش هنعمل Sync تاني طول ما إحنا في الصفحة
+        // -------------------------------------------------------
       }
-    }
-    setLoading(false);
-  }, (error) => {
-    setLoading(false);
-    handleFirestoreError(error, OperationType.GET, `tutors/${tutorId}`);
-  });
+      setLoading(false);
+    }, (error) => {
+      setLoading(false);
+      handleFirestoreError(error, OperationType.GET, `tutors/${tutorId}`);
+    });
 
-  // 2. المراقبين (Listeners) - سيبهم زي ما هما عشان يلقطوا التحديث بعد الـ Sync
-  const unsubProfile = onSnapshot(doc(db, 'users', tutorId), (doc) => {
-    if (doc.exists()) setTutorProfile(doc.data() as UserProfile);
-  });
+    const unsubProfile = onSnapshot(doc(db, 'users', tutorId), (doc) => {
+      if (doc.exists()) {
+        setTutorProfile(doc.data() as UserProfile);
+      }
+    }, (error) => {
+      console.error("Error fetching tutor profile:", error);
+    });
 
-  const unsubVacations = onSnapshot(collection(db, 'tutors', tutorId, 'vacations'), (snap) => {
-    setVacations(snap.docs.map(d => ({ id: d.id, ...d.data() } as Vacation)));
-  });
+    const unsubVacations = onSnapshot(collection(db, 'tutors', tutorId, 'vacations'), (snap) => {
+      setVacations(snap.docs.map(d => ({ id: d.id, ...d.data() } as Vacation)));
+    }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/vacations`));
 
-  const unsubFlags = onSnapshot(collection(db, 'tutors', tutorId, 'flags'), (snap) => {
-    setFlags(snap.docs.map(d => ({ id: d.id, ...d.data() } as Flag)));
-  });
+    const unsubReports = onSnapshot(collection(db, 'tutors', tutorId, 'qualityReports'), (snap) => {
+      setReports(snap.docs.map(d => ({ id: d.id, ...d.data() } as QualityReport)));
+    }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/qualityReports`));
 
-  const unsubCourses = onSnapshot(collection(db, 'tutors', tutorId, 'courses'), (snap) => {
-    setCourses(snap.docs.map(d => ({ id: d.id, ...d.data() } as Course)));
-  });
+    const unsubFlags = onSnapshot(collection(db, 'tutors', tutorId, 'flags'), (snap) => {
+      setFlags(snap.docs.map(d => ({ id: d.id, ...d.data() } as Flag)));
+    }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/flags`));
 
-  const unsubReports = onSnapshot(collection(db, 'tutors', tutorId, 'qualityReports'), (snap) => {
-    setReports(snap.docs.map(d => ({ id: d.id, ...d.data() } as QualityReport)));
-  });
+    const unsubCourses = onSnapshot(collection(db, 'tutors', tutorId, 'courses'), (snap) => {
+      setCourses(snap.docs.map(d => ({ id: d.id, ...d.data() } as Course)));
+    }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/courses`));
 
-  registerListener(unsubDetails);
-  registerListener(unsubProfile);
-  registerListener(unsubVacations);
-  registerListener(unsubReports);
-  registerListener(unsubFlags);
-  registerListener(unsubCourses);
+    registerListener(unsubDetails);
+    registerListener(unsubProfile);
+    registerListener(unsubVacations);
+    registerListener(unsubReports);
+    registerListener(unsubFlags);
+    registerListener(unsubCourses);
 
-  return () => {
-    unsubDetails();
-    unsubProfile();
-    unsubVacations();
-    unsubReports();
-    unsubFlags();
-    unsubCourses();
-  };
-}, [tutorId]); // الاعتماد على tutorId فقط
+    return () => {
+      unsubDetails();
+      unsubProfile();
+      unsubVacations();
+      unsubReports();
+      unsubFlags();
+      unsubCourses();
+    };
+  }, [tutorId]);
 
   const handleSaveDetails = async () => {
     try {
@@ -2198,51 +2188,86 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
     };
 
   const syncStudyFromSheets = async (savedUrl?: string) => {
-    const SHEET_URL = typeof savedUrl === 'string' ? savedUrl : window.prompt("أدخل رابط الـ CSV (Publish to Web):");
-    if (!SHEET_URL || !SHEET_URL.includes('google.com')) return;
+    // 1. لو فيه لينك محفوظ استخدمه، لو مفيش اطلب لينك جديد
+    const SHEET_URL = savedUrl || window.prompt("من فضلك أدخل رابط الـ CSV (Publish to Web):");
+
+    if (!SHEET_URL || !SHEET_URL.includes('google.com')) {
+        if (!savedUrl) alert("❌ خطأ: الرابط غير صحيح.");
+        return;
+    }
 
     Papa.parse(SHEET_URL, {
-      download: true,
-      header: true,
-      skipEmptyLines: true,
-      complete: async (results) => {
-        const rows = results.data as any[];
-        const currentTutorId = String(tutorId).trim();
-        const currentRow = rows.find(r => String(r.ID || r.id).trim() === currentTutorId);
+        download: true,
+        header: true,
+        skipEmptyLines: true,
+        complete: async (results) => {
+            const rows = results.data as any[];
+            const currentTutorId = String(details?.id || tutorId).trim();
 
-        try {
-          const coursesRef = collection(db, 'tutors', currentTutorId, 'courses');
-          const oldDocs = await getDocs(coursesRef);
-          
-          // مسح شامل
-          await Promise.all(oldDocs.docs.map(d => deleteDoc(d.ref)));
-          setCourses([]);
+            // 2. البحث عن الصف
+            const currentRow = rows.find(r => String(r.ID || r.id).trim() === currentTutorId);
 
-          if (currentRow) {
+            if (!currentRow) {
+                if (!savedUrl) alert(`❌ لم يتم العثور على المدرس رقم (${currentTutorId}) في الشيت.`);
+                return;
+            }
+
             const newCourses: any[] = [];
+
+            // 3. فحص كل الأعمدة
             Object.keys(currentRow).forEach(col => {
-              const val = String(currentRow[col]).trim().toLowerCase();
-              if (val === "done & published" || val === "done") {
-                newCourses.push({
-                  name: col.replace(/\n/g, ' ').trim(),
-                  grade: "Done",
-                  createdAt: new Date().toISOString()
-                });
-              }
+                const value = String(currentRow[col]).trim().toLowerCase();
+                
+                if (value === "done & published" || value === "done") {
+                    const cleanColName = col.replace(/\n/g, ' ').trim();
+
+                    if (cleanColName.toLowerCase() === 'free') {
+                        newCourses.push({ name: "Free", grade: "Done" });
+                    } 
+                    else {
+                        const match = cleanColName.match(/(M\d+[:\s\d-]*\[.*?\]|M\d+.*)/i);
+                        newCourses.push({
+                            name: match ? match[0] : cleanColName,
+                            grade: "Done"
+                        });
+                    }
+                }
             });
 
-            for (const course of newCourses) {
-              await addDoc(coursesRef, course);
+            if (newCourses.length === 0) {
+                if (!savedUrl) alert("ℹ️ تم العثور على المدرس، لكن لا يوجد أي كورس بحالة 'Done'");
+                return;
             }
-          }
 
-          await updateDoc(doc(db, 'tutors', currentTutorId), { studySheetLink: SHEET_URL });
-        } catch (err) {
-          console.error("Error during study sync:", err);
+            // 4. التحديث في Firestore
+            try {
+                // حفظ اللينك في بيانات المدرس الأساسية
+                const tutorRef = doc(db, 'tutors', tutorId);
+                await updateDoc(tutorRef, {
+                    studySheetLink: SHEET_URL
+                });
+
+                const coursesRef = collection(db, 'tutors', tutorId, 'courses');
+                const oldDocs = await getDocs(coursesRef);
+                await Promise.all(oldDocs.docs.map(doc => deleteDoc(doc.ref)));
+
+                await Promise.all(newCourses.map(course => addDoc(coursesRef, {
+                    ...course,
+                    createdAt: new Date().toISOString()
+                })));
+
+                // التنبيه والريفريش فقط في حالة الضغط اليدوي
+                if (!savedUrl) {
+                    alert(`✅ مبروك! تم تحديث (${newCourses.length}) كورس بنجاح.`);
+                    window.location.reload();
+                }
+            } catch (err) {
+                console.error(err);
+                if (!savedUrl) alert("❌ فشل تحديث البيانات في Firestore");
+            }
         }
-      }
     });
-  };
+};
 
   const sortCourses = (data: any[]) => {
     return [...data].sort((a, b) => {
@@ -2266,61 +2291,80 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   };
 
   const syncFlagsFromSheets = async (savedUrl?: string) => {
-    let rawUrl = typeof savedUrl === 'string' ? savedUrl : window.prompt("من فضلك أدخل رابط شيت الفلاجات:");
-    if (!rawUrl || !rawUrl.includes('google.com')) return;
+  // 1. لو فيه لينك محفوظ (من الـ reload) استخدمه، لو مفيش اطلب لينك جديد (من زرار الـ sync)
+  let rawUrl = savedUrl || window.prompt("من فضلك أدخل رابط الشير (تأكد أنك واقف على تاب الفلاجات):");
+  
+  if (!rawUrl || !rawUrl.includes('google.com')) return;
 
-    const gidMatch = rawUrl.match(/gid=([0-9]+)/);
-    const gidParam = gidMatch ? `&gid=${gidMatch[1]}` : '';
-    const SHEET_URL = rawUrl.replace(/\/edit.*$/, `/export?format=csv${gidParam}`);
+  // 2. استخراج الـ GID لضمان سحب البيانات من التاب اللي أنت واقف عليها
+  const gidMatch = rawUrl.match(/gid=([0-9]+)/);
+  const gidParam = gidMatch ? `&gid=${gidMatch[1]}` : '';
+  const SHEET_URL = rawUrl.replace(/\/edit.*$/, `/export?format=csv${gidParam}`);
 
-    Papa.parse(SHEET_URL, {
-      download: true,
-      header: false,
-      skipEmptyLines: true,
-      complete: async (results) => {
-        const rows = results.data as any[];
-        const currentTutorId = String(tutorId).trim();
+  Papa.parse(SHEET_URL, {
+    download: true,
+    header: false, 
+    skipEmptyLines: true,
+    complete: async (results) => {
+      const rows = results.data as any[];
+      const currentTutorId = String(details?.id || tutorId).trim();
 
-        // فلترة بيانات المدرس ده بس
-        const tutorRows = rows.filter(row => String(row[2] || '').trim() === currentTutorId);
+      // 3. فلترة الصفوف الخاصة بالمدرس
+      const tutorRows = rows.filter(row => 
+        String(row[2] || '').trim() === currentTutorId
+      );
 
-        try {
-          // --- الخطوة الانتحارية: مسح الداتا القديمة فعلياً من الـ Database ---
-          const flagsRef = collection(db, 'tutors', currentTutorId, 'flags');
-          const oldDocs = await getDocs(flagsRef);
-          
-          // لازم نستنى كل عملية مسح تخلص قبل ما نتحرك
-          const deletePromises = oldDocs.docs.map(d => deleteDoc(d.ref));
-          await Promise.all(deletePromises); 
-          
-          // تأكيد المسح في الـ State فوراً
-          setFlags([]);
-
-          if (tutorRows.length > 0) {
-            for (const row of tutorRows) {
-              await addDoc(flagsRef, {
-                date: `${row[4] || ''} - ${row[5] || ''}`,
-                type: String(row[8] || 'Yellow Flag').trim(),
-                status: String(row[12] || 'Working on').trim(),
-                reason: row[9] || '-',
-                studentId: row[6] || 'N/A',
-                createdAt: new Date().toISOString(),
-                mentorFeedback: "",
-                tutorFeedback: ""
-              });
-            }
-          }
-
-          // حفظ اللينك عشان المرة الجاية
-          await updateDoc(doc(db, 'tutors', currentTutorId), { flagsSheetLink: rawUrl });
-
-          if (!savedUrl) alert("تمت المزامنة بنجاح يا هندسة!");
-        } catch (err) {
-          console.error("Error during flags sync:", err);
-        }
+      if (tutorRows.length === 0) {
+        if (!savedUrl) alert(`لم يتم العثور على ID: ${currentTutorId} في هذه التاب.`);
+        return;
       }
-    });
-  };
+
+      const newFlags = tutorRows.map(row => ({
+        date: `${row[4] || ''} - ${row[5] || ''}`,
+        type: String(row[8] || 'Yellow Flag').trim(),
+        status: String(row[12] || 'Working on').trim(),
+        reason: row[9] || '-',
+        studentId: row[6] || 'N/A',
+        createdAt: new Date().toISOString(),
+        rawDate: new Date(row[4] || 0).getTime() 
+      }));
+
+      newFlags.sort((a, b) => b.rawDate - a.rawDate);
+
+      try {
+        // 4. حفظ اللينك في Firebase عشان يفضل موجود للمدرس ده (ده اللي هيحل مشكلة الـ reload)
+        const tutorRef = doc(db, 'tutors', currentTutorId);
+        await updateDoc(tutorRef, {
+          flagsSheetLink: rawUrl
+        });
+
+        // 5. تحديث الـ Flags في Firebase
+        const flagsRef = collection(db, 'tutors', currentTutorId, 'flags');
+        const oldDocs = await getDocs(flagsRef);
+        
+        await Promise.all(oldDocs.docs.map(d => deleteDoc(d.ref)));
+        
+        for (const flag of newFlags) {
+          const { rawDate, ...flagToSave } = flag;
+          await addDoc(flagsRef, {
+              ...flagToSave,
+              mentorFeedback: "", 
+              tutorFeedback: ""
+          });
+        }
+
+        // لو التحديث يدوي (مش من الـ reload) طلع التنبيه واعمل ريفريش
+        if (!savedUrl) {
+          alert(`عاش يا سيف! تم مزامنة ${newFlags.length} فلاج بنجاح.`);
+          window.location.reload();
+        }
+      } catch (err) {
+        console.error(err);
+        if (!savedUrl) alert("حدث خطأ أثناء تحديث البيانات في Firebase.");
+      }
+    }
+  });
+};
   
   if (loading) return <Loading />;
   if (!details) return <div className="text-center py-12">{t('noData')}</div>;
