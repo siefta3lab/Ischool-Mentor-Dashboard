@@ -2031,55 +2031,54 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
     title: '',
     message: '',
     onConfirm: () => {},
-  });ٍ
+  });
 
 
   const hasAutoSynced = useRef(false);
-
-useEffect(() => {
+  useEffect(() => {
   if (!tutorId) return;
 
+  // ريست للقفل وتصفير الداتا القديمة فوراً عشان "تنضف" الشاشة
   hasAutoSynced.current = false;
+  setFlags([]);
+  setCourses([]);
   setLoading(true);
 
-  const unsubDetails = onSnapshot(doc(db, 'tutors', tutorId), async (docSnap) => {
+  // 1. مراقب بيانات المدرس الأساسية (عشان نجيب منها اللينكات)
+  const unsubDetails = onSnapshot(doc(db, 'tutors', tutorId), (docSnap) => {
     if (docSnap.exists()) {
       const data = docSnap.data() as TutorDetails;
       setDetails(data);
       setEditData(data);
 
+      // --- 🎯 المزامنة التلقائية (بتحصل مرة واحدة فقط عند فتح الصفحة) ---
       if (!hasAutoSynced.current) {
-        hasAutoSynced.current = true;
-
-        // --- 1. التعامل مع الفلاجات ---
+        // لو فيه لينك فلاجات محفوظ.. روح هاته
         if (data.flagsSheetLink) {
-          console.log("🚩 لينك موجود.. جاري التحديث");
-          await syncFlagsFromSheets(data.flagsSheetLink);
-        } else {
-          console.log("🗑️ مفيش لينك فلاجات.. جاري مسح الداتا من Firebase");
-          const flagsRef = collection(db, 'tutors', tutorId, 'flags');
-          const snap = await getDocs(flagsRef);
-          await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
-          setFlags([]); // تصفير الشاشة
+          console.log("🚩 [AUTO-SYNC] Fetching Flags...");
+          syncFlagsFromSheets(data.flagsSheetLink);
         }
-
-        // --- 2. التعامل مع الكورسات ---
+        // لو فيه لينك كورسات محفوظ.. روح هاته
         if (data.studySheetLink) {
-          console.log("📚 لينك موجود.. جاري التحديث");
-          await syncStudyFromSheets(data.studySheetLink);
-        } else {
-          console.log("🗑️ مفيش لينك كورسات.. جاري مسح الداتا من Firebase");
-          const coursesRef = collection(db, 'tutors', tutorId, 'courses');
-          const snap = await getDocs(coursesRef);
-          await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
-          setCourses([]); // تصفير الشاشة
+          console.log("📚 [AUTO-SYNC] Fetching Study...");
+          syncStudyFromSheets(data.studySheetLink);
         }
+        
+        // اقفل الباب عشان ميعملش Sync تاني طول ما أنت واقف في نفس الصفحة
+        hasAutoSynced.current = true;
       }
     }
     setLoading(false);
+  }, (error) => {
+    setLoading(false);
+    handleFirestoreError(error, OperationType.GET, `tutors/${tutorId}`);
   });
 
-  // الـ Listeners التانية بتفضل زي ما هي عشان تعرض النتيجة فوراً
+  // 2. بقية المراقبين (الـ Real-time Display)
+  const unsubProfile = onSnapshot(doc(db, 'users', tutorId), (doc) => {
+    if (doc.exists()) setTutorProfile(doc.data() as UserProfile);
+  });
+
   const unsubFlags = onSnapshot(collection(db, 'tutors', tutorId, 'flags'), (snap) => {
     setFlags(snap.docs.map(d => ({ id: d.id, ...d.data() } as Flag)));
   });
@@ -2088,8 +2087,10 @@ useEffect(() => {
     setCourses(snap.docs.map(d => ({ id: d.id, ...d.data() } as Course)));
   });
 
+  // الـ Clean-up
   return () => {
     unsubDetails();
+    unsubProfile();
     unsubFlags();
     unsubCourses();
   };
