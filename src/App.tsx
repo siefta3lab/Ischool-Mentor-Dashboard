@@ -2033,70 +2033,68 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
     onConfirm: () => {},
   });
 
-  useEffect(() => {
-    // 1. مراقب بيانات المدرس الأساسية (عشان نجيب منها اللينكات)
-    const unsubDetails = onSnapshot(doc(db, 'tutors', tutorId), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setDetails(data as TutorDetails);
-        setEditData(data);
 
-        // --- الجزء الذكي: المزامنة التلقائية عند وجود لينكات محفوظة ---
-        // بنشغلهم فقط لو الداتا لسه بتحمل أول مرة أو اللينكات موجودة
+  const hasAutoSynced = useRef(false);
+  useEffect(() => {
+  if (!tutorId) return;
+
+  // ريست للقفل وتصفير الداتا القديمة فوراً عشان "تنضف" الشاشة
+  hasAutoSynced.current = false;
+  setFlags([]);
+  setCourses([]);
+  setLoading(true);
+
+  // 1. مراقب بيانات المدرس الأساسية (عشان نجيب منها اللينكات)
+  const unsubDetails = onSnapshot(doc(db, 'tutors', tutorId), (docSnap) => {
+    if (docSnap.exists()) {
+      const data = docSnap.data() as TutorDetails;
+      setDetails(data);
+      setEditData(data);
+
+      // --- 🎯 المزامنة التلقائية (بتحصل مرة واحدة فقط عند فتح الصفحة) ---
+      if (!hasAutoSynced.current) {
+        // لو فيه لينك فلاجات محفوظ.. روح هاته
         if (data.flagsSheetLink) {
+          console.log("🚩 [AUTO-SYNC] Fetching Flags...");
           syncFlagsFromSheets(data.flagsSheetLink);
         }
+        // لو فيه لينك كورسات محفوظ.. روح هاته
         if (data.studySheetLink) {
+          console.log("📚 [AUTO-SYNC] Fetching Study...");
           syncStudyFromSheets(data.studySheetLink);
         }
-        // -------------------------------------------------------
+        
+        // اقفل الباب عشان ميعملش Sync تاني طول ما أنت واقف في نفس الصفحة
+        hasAutoSynced.current = true;
       }
-      setLoading(false);
-    }, (error) => {
-      setLoading(false);
-      handleFirestoreError(error, OperationType.GET, `tutors/${tutorId}`);
-    });
+    }
+    setLoading(false);
+  }, (error) => {
+    setLoading(false);
+    handleFirestoreError(error, OperationType.GET, `tutors/${tutorId}`);
+  });
 
-    const unsubProfile = onSnapshot(doc(db, 'users', tutorId), (doc) => {
-      if (doc.exists()) {
-        setTutorProfile(doc.data() as UserProfile);
-      }
-    }, (error) => {
-      console.error("Error fetching tutor profile:", error);
-    });
+  // 2. بقية المراقبين (الـ Real-time Display)
+  const unsubProfile = onSnapshot(doc(db, 'users', tutorId), (doc) => {
+    if (doc.exists()) setTutorProfile(doc.data() as UserProfile);
+  });
 
-    const unsubVacations = onSnapshot(collection(db, 'tutors', tutorId, 'vacations'), (snap) => {
-      setVacations(snap.docs.map(d => ({ id: d.id, ...d.data() } as Vacation)));
-    }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/vacations`));
+  const unsubFlags = onSnapshot(collection(db, 'tutors', tutorId, 'flags'), (snap) => {
+    setFlags(snap.docs.map(d => ({ id: d.id, ...d.data() } as Flag)));
+  });
 
-    const unsubReports = onSnapshot(collection(db, 'tutors', tutorId, 'qualityReports'), (snap) => {
-      setReports(snap.docs.map(d => ({ id: d.id, ...d.data() } as QualityReport)));
-    }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/qualityReports`));
+  const unsubCourses = onSnapshot(collection(db, 'tutors', tutorId, 'courses'), (snap) => {
+    setCourses(snap.docs.map(d => ({ id: d.id, ...d.data() } as Course)));
+  });
 
-    const unsubFlags = onSnapshot(collection(db, 'tutors', tutorId, 'flags'), (snap) => {
-      setFlags(snap.docs.map(d => ({ id: d.id, ...d.data() } as Flag)));
-    }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/flags`));
-
-    const unsubCourses = onSnapshot(collection(db, 'tutors', tutorId, 'courses'), (snap) => {
-      setCourses(snap.docs.map(d => ({ id: d.id, ...d.data() } as Course)));
-    }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/courses`));
-
-    registerListener(unsubDetails);
-    registerListener(unsubProfile);
-    registerListener(unsubVacations);
-    registerListener(unsubReports);
-    registerListener(unsubFlags);
-    registerListener(unsubCourses);
-
-    return () => {
-      unsubDetails();
-      unsubProfile();
-      unsubVacations();
-      unsubReports();
-      unsubFlags();
-      unsubCourses();
-    };
-  }, [tutorId]);
+  // الـ Clean-up
+  return () => {
+    unsubDetails();
+    unsubProfile();
+    unsubFlags();
+    unsubCourses();
+  };
+}, [tutorId]);
 
   const handleSaveDetails = async () => {
     try {
@@ -2356,7 +2354,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
           });
         }
 
-        if (!savedUrl) alert(`تمام يا سيف! لقيت ${newFlags.length} فلاج للمدرس ${searchId} وتم التحديث.`);
+        if (!savedUrl) alert(`تمام! لقيت ${newFlags.length} فلاج للمدرس ${searchId} وتم التحديث.`);
       } catch (err) {
         console.error("Firebase Error:", err);
         if (!savedUrl) alert("حصلت مشكلة وأنا بحدث Firebase.");
