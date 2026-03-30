@@ -2034,10 +2034,22 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   });
 
   useEffect(() => {
-    const unsubDetails = onSnapshot(doc(db, 'tutors', tutorId), (doc) => {
-      if (doc.exists()) {
-        setDetails(doc.data() as TutorDetails);
-        setEditData(doc.data());
+    // 1. مراقب بيانات المدرس الأساسية (عشان نجيب منها اللينكات)
+    const unsubDetails = onSnapshot(doc(db, 'tutors', tutorId), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setDetails(data as TutorDetails);
+        setEditData(data);
+
+        // --- الجزء الذكي: المزامنة التلقائية عند وجود لينكات محفوظة ---
+        // بنشغلهم فقط لو الداتا لسه بتحمل أول مرة أو اللينكات موجودة
+        if (data.flagsSheetLink) {
+          syncFlagsFromSheets(data.flagsSheetLink);
+        }
+        if (data.studySheetLink) {
+          syncStudyFromSheets(data.studySheetLink);
+        }
+        // -------------------------------------------------------
       }
       setLoading(false);
     }, (error) => {
@@ -2175,11 +2187,12 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
       }
     };
 
-  const syncStudyFromSheets = async () => {
-    const SHEET_URL = window.prompt("من فضلك أدخل رابط الـ CSV (Publish to Web):");
+  const syncStudyFromSheets = async (savedUrl?: string) => {
+    // 1. لو فيه لينك محفوظ استخدمه، لو مفيش اطلب لينك جديد
+    const SHEET_URL = savedUrl || window.prompt("من فضلك أدخل رابط الـ CSV (Publish to Web):");
 
     if (!SHEET_URL || !SHEET_URL.includes('google.com')) {
-        alert("❌ خطأ: الرابط غير صحيح.");
+        if (!savedUrl) alert("❌ خطأ: الرابط غير صحيح.");
         return;
     }
 
@@ -2189,36 +2202,29 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
         skipEmptyLines: true,
         complete: async (results) => {
             const rows = results.data as any[];
-            const targetId = String(details.id).trim();
+            const currentTutorId = String(details?.id || tutorId).trim();
 
-            // 1. البحث عن الصف (بنقارن بـ ID مع تجاهل المسافات)
-            const currentRow = rows.find(r => String(r.ID || r.id).trim() === targetId);
+            // 2. البحث عن الصف
+            const currentRow = rows.find(r => String(r.ID || r.id).trim() === currentTutorId);
 
             if (!currentRow) {
-                alert(`❌ لم يتم العثور على المدرس رقم (${targetId}) في الشيت.`);
+                if (!savedUrl) alert(`❌ لم يتم العثور على المدرس رقم (${currentTutorId}) في الشيت.`);
                 return;
             }
 
             const newCourses: any[] = [];
 
-            // 2. فحص كل الأعمدة
+            // 3. فحص كل الأعمدة
             Object.keys(currentRow).forEach(col => {
                 const value = String(currentRow[col]).trim().toLowerCase();
                 
-                // التحقق من حالة الكورس (بناءً على الصورة عندك)
-                // بيدور على "done & published" أو "done"
                 if (value === "done & published" || value === "done") {
-                    
-                    // تنظيف اسم العمود من أي سطر جديد (\n) أو مسافات زيادة
                     const cleanColName = col.replace(/\n/g, ' ').trim();
 
-                    // لو العمود هو "Free"
                     if (cleanColName.toLowerCase() === 'free') {
                         newCourses.push({ name: "Free", grade: "Done" });
                     } 
-                    // لو العمود فيه نمط الكورسات (M1, M2...)
                     else {
-                        // Regex مرن جداً بياخد أي حاجة بتبدأ بـ M وبعدها رقم
                         const match = cleanColName.match(/(M\d+[:\s\d-]*\[.*?\]|M\d+.*)/i);
                         newCourses.push({
                             name: match ? match[0] : cleanColName,
@@ -2229,12 +2235,18 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
             });
 
             if (newCourses.length === 0) {
-                alert("ℹ️ تم العثور على المدرس، لكن لا يوجد أي كورس بحالة 'Done & published' أو 'done'");
+                if (!savedUrl) alert("ℹ️ تم العثور على المدرس، لكن لا يوجد أي كورس بحالة 'Done'");
                 return;
             }
 
-            // 3. التحديث في Firestore
+            // 4. التحديث في Firestore
             try {
+                // حفظ اللينك في بيانات المدرس الأساسية
+                const tutorRef = doc(db, 'tutors', tutorId);
+                await updateDoc(tutorRef, {
+                    studySheetLink: SHEET_URL
+                });
+
                 const coursesRef = collection(db, 'tutors', tutorId, 'courses');
                 const oldDocs = await getDocs(coursesRef);
                 await Promise.all(oldDocs.docs.map(doc => deleteDoc(doc.ref)));
@@ -2244,10 +2256,14 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                     createdAt: new Date().toISOString()
                 })));
 
-                alert(`✅ مبروك! تم تحديث (${newCourses.length}) كورس بنجاح.`);
-                window.location.reload();
+                // التنبيه والريفريش فقط في حالة الضغط اليدوي
+                if (!savedUrl) {
+                    alert(`✅ مبروك! تم تحديث (${newCourses.length}) كورس بنجاح.`);
+                    window.location.reload();
+                }
             } catch (err) {
-                alert("❌ فشل تحديث البيانات في Firestore");
+                console.error(err);
+                if (!savedUrl) alert("❌ فشل تحديث البيانات في Firestore");
             }
         }
     });
@@ -2274,75 +2290,81 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
     });
   };
 
-  const syncFlagsFromSheets = async () => {
-    let rawUrl = window.prompt("من فضلك أدخل رابط الشير (تأكد أنك واقف على تاب الفلاجات):");
-    if (!rawUrl || !rawUrl.includes('google.com')) return;
+  const syncFlagsFromSheets = async (savedUrl?: string) => {
+  // 1. لو فيه لينك محفوظ (من الـ reload) استخدمه، لو مفيش اطلب لينك جديد (من زرار الـ sync)
+  let rawUrl = savedUrl || window.prompt("من فضلك أدخل رابط الشير (تأكد أنك واقف على تاب الفلاجات):");
+  
+  if (!rawUrl || !rawUrl.includes('google.com')) return;
 
-    // 1. استخراج الـ GID لضمان سحب البيانات من التاب اللي أنت واقف عليها
-    const gidMatch = rawUrl.match(/gid=([0-9]+)/);
-    const gidParam = gidMatch ? `&gid=${gidMatch[1]}` : '';
-    const SHEET_URL = rawUrl.replace(/\/edit.*$/, `/export?format=csv${gidParam}`);
+  // 2. استخراج الـ GID لضمان سحب البيانات من التاب اللي أنت واقف عليها
+  const gidMatch = rawUrl.match(/gid=([0-9]+)/);
+  const gidParam = gidMatch ? `&gid=${gidMatch[1]}` : '';
+  const SHEET_URL = rawUrl.replace(/\/edit.*$/, `/export?format=csv${gidParam}`);
 
-    Papa.parse(SHEET_URL, {
-      download: true,
-      header: false, // بنقرأ بالأعمدة (Index) لضمان الدقة
-      skipEmptyLines: true,
-      complete: async (results) => {
-        const rows = results.data as any[];
-        const targetId = String(details?.id || tutorId).trim();
+  Papa.parse(SHEET_URL, {
+    download: true,
+    header: false, 
+    skipEmptyLines: true,
+    complete: async (results) => {
+      const rows = results.data as any[];
+      const currentTutorId = String(details?.id || tutorId).trim();
 
-        // 2. فلترة الصفوف الخاصة بالمدرس (العمود C هو Index 2)
-        const tutorRows = rows.filter(row => 
-          String(row[2] || '').trim() === targetId
-        );
+      // 3. فلترة الصفوف الخاصة بالمدرس
+      const tutorRows = rows.filter(row => 
+        String(row[2] || '').trim() === currentTutorId
+      );
 
-        if (tutorRows.length === 0) {
-          alert(`لم يتم العثور على ID: ${targetId} في هذه التاب. تأكد من صحة الـ ID في الشيت.`);
-          return;
-        }
-
-        // 3. تحويل البيانات وسحب (النوع والحالة) ديناميكياً
-        const newFlags = tutorRows.map(row => ({
-          date: `${row[4] || ''} - ${row[5] || ''}`, // تاريخ وسلوت (E, F)
-          type: String(row[8] || 'Yellow Flag').trim(), // النوع من عمود I
-          status: String(row[12] || 'Working on').trim(), // الحالة من عمود M
-          reason: row[9] || '-', // السبب من عمود J
-          studentId: row[6] || 'N/A', // طالب/جروب من عمود G
-          createdAt: new Date().toISOString(),
-          // حقل مساعد للترتيب فقط
-          rawDate: new Date(row[4] || 0).getTime() 
-        }));
-
-        // 4. ترتيب الفلاجات: الأحدث (تاريخ أكبر) يكون فوق
-        newFlags.sort((a, b) => b.rawDate - a.rawDate);
-
-        try {
-          // 5. تحديث قاعدة البيانات (Firebase)
-          const flagsRef = collection(db, 'tutors', tutorId, 'flags');
-          const oldDocs = await getDocs(flagsRef);
-          
-          // مسح الفلاجات القديمة للمدرس
-          await Promise.all(oldDocs.docs.map(d => deleteDoc(d.ref)));
-          
-          // إضافة الفلاجات الجديدة بالترتيب الصحيح
-          for (const flag of newFlags) {
-            const { rawDate, ...flagToSave } = flag; // حذف rawDate قبل الحفظ
-            await addDoc(flagsRef, {
-                ...flagToSave,
-                mentorFeedback: "", 
-                tutorFeedback: ""
-            });
-          }
-
-          alert(`عاش يا سيف! تم مزامنة ${newFlags.length} فلاج بنجاح (الأحدث أولاً).`);
-          window.location.reload();
-        } catch (err) {
-          console.error(err);
-          alert("حدث خطأ أثناء تحديث البيانات في Firebase.");
-        }
+      if (tutorRows.length === 0) {
+        if (!savedUrl) alert(`لم يتم العثور على ID: ${currentTutorId} في هذه التاب.`);
+        return;
       }
-    });
-  };
+
+      const newFlags = tutorRows.map(row => ({
+        date: `${row[4] || ''} - ${row[5] || ''}`,
+        type: String(row[8] || 'Yellow Flag').trim(),
+        status: String(row[12] || 'Working on').trim(),
+        reason: row[9] || '-',
+        studentId: row[6] || 'N/A',
+        createdAt: new Date().toISOString(),
+        rawDate: new Date(row[4] || 0).getTime() 
+      }));
+
+      newFlags.sort((a, b) => b.rawDate - a.rawDate);
+
+      try {
+        // 4. حفظ اللينك في Firebase عشان يفضل موجود للمدرس ده (ده اللي هيحل مشكلة الـ reload)
+        const tutorRef = doc(db, 'tutors', currentTutorId);
+        await updateDoc(tutorRef, {
+          flagsSheetLink: rawUrl
+        });
+
+        // 5. تحديث الـ Flags في Firebase
+        const flagsRef = collection(db, 'tutors', currentTutorId, 'flags');
+        const oldDocs = await getDocs(flagsRef);
+        
+        await Promise.all(oldDocs.docs.map(d => deleteDoc(d.ref)));
+        
+        for (const flag of newFlags) {
+          const { rawDate, ...flagToSave } = flag;
+          await addDoc(flagsRef, {
+              ...flagToSave,
+              mentorFeedback: "", 
+              tutorFeedback: ""
+          });
+        }
+
+        // لو التحديث يدوي (مش من الـ reload) طلع التنبيه واعمل ريفريش
+        if (!savedUrl) {
+          alert(`عاش يا سيف! تم مزامنة ${newFlags.length} فلاج بنجاح.`);
+          window.location.reload();
+        }
+      } catch (err) {
+        console.error(err);
+        if (!savedUrl) alert("حدث خطأ أثناء تحديث البيانات في Firebase.");
+      }
+    }
+  });
+};
   
   if (loading) return <Loading />;
   if (!details) return <div className="text-center py-12">{t('noData')}</div>;
@@ -2763,7 +2785,8 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    syncStudyFromSheets(); 
+                    // نرسل undefined لإجبار الدالة على فتح الـ prompt لطلب لينك جديد
+                    syncStudyFromSheets(undefined); 
                   }}
                   className="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-[10px] cursor-pointer transition-colors font-bold"
                 >
@@ -2852,7 +2875,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
               <span>{t('flags')}</span>
               {isMentor && (
                 <button 
-                  onClick={syncFlagsFromSheets}
+                  onClick={() => syncFlagsFromSheets(undefined)} // تعديل هنا لضمان فتح الـ prompt عند الضغط اليدوي
                   className="bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded text-[10px] font-bold transition-colors cursor-pointer"
                 >
                   Sync Flags
