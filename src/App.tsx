@@ -2036,32 +2036,26 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   useEffect(() => {
     if (!tutorId) return;
 
-    // علم لضمان تنفيذ المزامنة مرة واحدة فقط عند تحميل الصفحة
+    // علم (Flag) لضمان أن المزامنة التلقائية تتم مرة واحدة فقط عند فتح الصفحة
     let isInitialSyncDone = false;
 
-    // 1. تصفير الجداول فوراً عند دخول الصفحة لضمان عدم عرض أي داتا قديمة
-    setFlags([]);
-    setCourses([]);
-
-    // 2. مراقب بيانات المدرس الأساسية (لجلب اللينكات)
+    // 1. مراقب بيانات المدرس الأساسية (عشان نجيب منها اللينكات)
     const unsubDetails = onSnapshot(doc(db, 'tutors', tutorId), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setDetails(data as TutorDetails);
         setEditData(data);
 
-        // --- المزامنة التلقائية ---
+        // --- المزامنة التلقائية الذكية ---
+        // بنفذ الـ Sync فقط في أول مرة البيانات بتحمل فيها
         if (!isInitialSyncDone) {
-          // لو فيه لينك للفلاجات، حدث من اللينك. لو مفيش، هي أصلاً اتصفرت فوق.
           if (data.flagsSheetLink) {
             syncFlagsFromSheets(data.flagsSheetLink);
           }
-
-          // لو فيه لينك للكورسات، حدث من اللينك.
           if (data.studySheetLink) {
             syncStudyFromSheets(data.studySheetLink);
           }
-
+          // نرفع العلم لمنع تكرار الـ Sync مع كل تحديث بسيط في الـ Firestore
           isInitialSyncDone = true;
         }
       }
@@ -2071,28 +2065,31 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
       handleFirestoreError(error, OperationType.GET, `tutors/${tutorId}`);
     });
 
-    // 3. مراقبين العرض (بيحدثوا الشاشة أول ما دوال الـ Sync تكتب في الداتابيز)
-    const unsubFlags = onSnapshot(collection(db, 'tutors', tutorId, 'flags'), (snap) => {
-      // بنعرض الداتا فقط لو الـ Sync اشتغل أو كان فيه لينك
-      setFlags(snap.docs.map(d => ({ id: d.id, ...d.data() } as Flag)));
-    });
-
-    const unsubCourses = onSnapshot(collection(db, 'tutors', tutorId, 'courses'), (snap) => {
-      setCourses(snap.docs.map(d => ({ id: d.id, ...d.data() } as Course)));
-    });
-
-    // بقية المراقبين كما هي
     const unsubProfile = onSnapshot(doc(db, 'users', tutorId), (doc) => {
-      if (doc.exists()) setTutorProfile(doc.data() as UserProfile);
+      if (doc.exists()) {
+        setTutorProfile(doc.data() as UserProfile);
+      }
+    }, (error) => {
+      console.error("Error fetching tutor profile:", error);
     });
 
     const unsubVacations = onSnapshot(collection(db, 'tutors', tutorId, 'vacations'), (snap) => {
       setVacations(snap.docs.map(d => ({ id: d.id, ...d.data() } as Vacation)));
-    });
+    }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/vacations`));
 
     const unsubReports = onSnapshot(collection(db, 'tutors', tutorId, 'qualityReports'), (snap) => {
       setReports(snap.docs.map(d => ({ id: d.id, ...d.data() } as QualityReport)));
-    });
+    }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/qualityReports`));
+
+    // مراقب الـ Flags: ده اللي بيعرض البيانات فوراً لما دالة الـ Sync تخلص
+    const unsubFlags = onSnapshot(collection(db, 'tutors', tutorId, 'flags'), (snap) => {
+      setFlags(snap.docs.map(d => ({ id: d.id, ...d.data() } as Flag)));
+    }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/flags`));
+
+    // مراقب الـ Courses: ده اللي بيعرض الكورسات فوراً
+    const unsubCourses = onSnapshot(collection(db, 'tutors', tutorId, 'courses'), (snap) => {
+      setCourses(snap.docs.map(d => ({ id: d.id, ...d.data() } as Course)));
+    }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/courses`));
 
     registerListener(unsubDetails);
     registerListener(unsubProfile);
