@@ -2034,11 +2034,6 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   });
 
   useEffect(() => {
-    if (!tutorId) return;
-
-    // علم (Flag) لضمان أن المزامنة التلقائية تتم مرة واحدة فقط عند فتح الصفحة
-    let isInitialSyncDone = false;
-
     // 1. مراقب بيانات المدرس الأساسية (عشان نجيب منها اللينكات)
     const unsubDetails = onSnapshot(doc(db, 'tutors', tutorId), (docSnap) => {
       if (docSnap.exists()) {
@@ -2046,18 +2041,15 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
         setDetails(data as TutorDetails);
         setEditData(data);
 
-        // --- المزامنة التلقائية الذكية ---
-        // بنفذ الـ Sync فقط في أول مرة البيانات بتحمل فيها
-        if (!isInitialSyncDone) {
-          if (data.flagsSheetLink) {
-            syncFlagsFromSheets(data.flagsSheetLink);
-          }
-          if (data.studySheetLink) {
-            syncStudyFromSheets(data.studySheetLink);
-          }
-          // نرفع العلم لمنع تكرار الـ Sync مع كل تحديث بسيط في الـ Firestore
-          isInitialSyncDone = true;
+        // --- الجزء الذكي: المزامنة التلقائية عند وجود لينكات محفوظة ---
+        // بنشغلهم فقط لو الداتا لسه بتحمل أول مرة أو اللينكات موجودة
+        if (data.flagsSheetLink) {
+          syncFlagsFromSheets(data.flagsSheetLink);
         }
+        if (data.studySheetLink) {
+          syncStudyFromSheets(data.studySheetLink);
+        }
+        // -------------------------------------------------------
       }
       setLoading(false);
     }, (error) => {
@@ -2081,12 +2073,10 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
       setReports(snap.docs.map(d => ({ id: d.id, ...d.data() } as QualityReport)));
     }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/qualityReports`));
 
-    // مراقب الـ Flags: ده اللي بيعرض البيانات فوراً لما دالة الـ Sync تخلص
     const unsubFlags = onSnapshot(collection(db, 'tutors', tutorId, 'flags'), (snap) => {
       setFlags(snap.docs.map(d => ({ id: d.id, ...d.data() } as Flag)));
     }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/flags`));
 
-    // مراقب الـ Courses: ده اللي بيعرض الكورسات فوراً
     const unsubCourses = onSnapshot(collection(db, 'tutors', tutorId, 'courses'), (snap) => {
       setCourses(snap.docs.map(d => ({ id: d.id, ...d.data() } as Course)));
     }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/courses`));
