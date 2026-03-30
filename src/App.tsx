@@ -2291,11 +2291,9 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   };
 
   const syncFlagsFromSheets = async (savedUrl?: string) => {
-  // 1. طلب اللينك أو استخدام المحفوظ
   let rawUrl = savedUrl || window.prompt("من فضلك أدخل رابط الشير (تأكد أنك واقف على تاب الفلاجات):");
   if (!rawUrl || !rawUrl.includes('google.com')) return;
 
-  // استخراج الـ GID لتحميل التاب الصحيحة
   const gidMatch = rawUrl.match(/gid=([0-9]+)/);
   const gidParam = gidMatch ? `&gid=${gidMatch[1]}` : '';
   const SHEET_URL = rawUrl.replace(/\/edit.*$/, `/export?format=csv${gidParam}`);
@@ -2306,21 +2304,23 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
     skipEmptyLines: true,
     complete: async (results) => {
       const rows = results.data as any[];
-      
-      // tutorId هو الرقم اللي إحنا بندور بيه (مثلاً 1111)
-      const currentTutorId = String(tutorId).trim();
 
-      // 2. فلترة الصفوف من الشيت بناءً على الـ Tutor ID (العمود الثالث index 2)
+      // 🎯 السر هنا: بنجيب الـ ID اللي هو "T-4538" من الـ details أو الـ profile
+      // لو عندك حقل اسمه tutorCustomId استخدمه، لو اسمه id (واللي جواه رقم) استخدمه
+      const searchId = String(details?.tutorCustomId || details?.id || tutorId).trim();
+
+      console.log("🔍 [DEBUG] Searching in sheet for ID:", searchId);
+
+      // فلترة الصفوف بناءً على الـ ID البشري (T-4538)
       const tutorRows = rows.filter(row => 
-        String(row[2] || '').trim() === currentTutorId
+        String(row[2] || '').trim() === searchId
       );
 
       if (tutorRows.length === 0) {
-        if (!savedUrl) alert(`لم يتم العثور على Tutor ID: ${currentTutorId} في هذا الشيت.`);
+        if (!savedUrl) alert(`لم يتم العثور على Tutor ID: ${searchId} في هذا الشيت.`);
         return;
       }
 
-      // تجهيز الداتا الجديدة
       const newFlags = tutorRows.map(row => ({
         date: `${row[4] || ''} - ${row[5] || ''}`,
         type: String(row[8] || 'Yellow Flag').trim(),
@@ -2334,39 +2334,19 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
       newFlags.sort((a, b) => b.rawDate - a.rawDate);
 
       try {
-        // --- الجزء الأهم: البحث عن الـ UID باستخدام الـ Tutor ID ---
-        const tutorsRef = collection(db, 'tutors');
-        const q = query(tutorsRef, where("id", "==", currentTutorId)); 
-        const querySnapshot = await getDocs(q);
+        // هنا بنستخدم الـ UID (الحروف الكتير) فقط عشان نوصل للمكان في Firebase
+        // tutorId اللي مبعوت للـ Component هو الـ UID
+        const tutorUID = tutorId; 
+        const tutorRef = doc(db, 'tutors', tutorUID);
+        
+        // 1. تحديث اللينك
+        await updateDoc(tutorRef, { flagsSheetLink: rawUrl });
 
-        if (querySnapshot.empty) {
-          if (!savedUrl) alert(`عذراً، المدرس رقم ${currentTutorId} غير موجود في السيستم.`);
-          return;
-        }
-
-        // الحصول على الـ Document الحقيقي (الـ UID)
-        const tutorDoc = querySnapshot.docs[0];
-        const tutorUID = tutorDoc.id; // الحروف المعقدة في الفايربيز
-        const tutorRef = tutorDoc.ref;
-
-        // 3. تحديث اللينك في الدوكيومنت الأساسي للمدرس
-        await updateDoc(tutorRef, {
-          flagsSheetLink: rawUrl
-        });
-
-        // تحديث الـ State محلياً عشان يظهر في البيانات الأساسية فوراً
-        if (details) {
-          setDetails({ ...details, flagsSheetLink: rawUrl });
-        }
-
-        // 4. تحديث كوليكشن الفلاجات (داخل الـ UID اللي لقيناه)
+        // 2. مسح وتحديث الفلاجات
         const flagsRef = collection(db, 'tutors', tutorUID, 'flags');
         const oldDocs = await getDocs(flagsRef);
-        
-        // مسح القديم
         await Promise.all(oldDocs.docs.map(d => deleteDoc(d.ref)));
         
-        // إضافة الجديد
         for (const flag of newFlags) {
           const { rawDate, ...flagToSave } = flag;
           await addDoc(flagsRef, {
@@ -2376,12 +2356,10 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
           });
         }
 
-        if (!savedUrl) {
-          alert(`تمام يا سيف! تم تحديث بيانات المدرس ${currentTutorId} بنجاح.`);
-        }
+        if (!savedUrl) alert(`تمام يا سيف! لقيت ${newFlags.length} فلاج للمدرس ${searchId} وتم التحديث.`);
       } catch (err) {
-        console.error("Firebase Sync Error:", err);
-        if (!savedUrl) alert("حدث خطأ أثناء الوصول لبيانات المدرس في Firebase.");
+        console.error("Firebase Error:", err);
+        if (!savedUrl) alert("حصلت مشكلة وأنا بحدث Firebase.");
       }
     }
   });
