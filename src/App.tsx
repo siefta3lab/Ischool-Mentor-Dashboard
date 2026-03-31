@@ -2036,75 +2036,63 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
     const hasAutoSynced = useRef(false);
 
     useEffect(() => {
-    // 1. حاجز أمان: لو مفيش ID للمدرس اقفل الدالة فوراً
     if (!tutorId) return;
 
     hasAutoSynced.current = false;
     setLoading(true);
 
-    // 2. مراقب بيانات المدرس الأساسية
     const unsubDetails = onSnapshot(doc(db, 'tutors', tutorId), (docSnap) => {
         if (docSnap.exists()) {
             const data = docSnap.data();
             setDetails(data as TutorDetails);
 
             const runSyncLogic = async () => {
-                // التأكد إننا مش بنعمل مزامنة مرتين في نفس اللحظة
+                // نحدث البيانات فقط لو لم يتم التحديث في هذه الجلسة بعد
                 if (!hasAutoSynced.current) {
                     hasAutoSynced.current = true;
 
-                    // --- منطق الفلاجات (Flags) ---
+                    // 1. مزامنة الفلاجات (Flags)
                     if (data.flagsSheetLink) {
-                        console.log("Auto-syncing Flags...");
                         await syncFlagsFromSheets(data.flagsSheetLink);
                     } else {
-                        // لو الرابط مش موجود، بنمسح بس لو كان فيه داتا قديمة (تنظيف)
+                        // لو الرابط مش موجود، نمسح الفلاجات القديمة عشان الكارد يظهر فاضي
                         const snap = await getDocs(collection(db, 'tutors', tutorId, 'flags'));
-                        if (!snap.empty) {
-                            const deletePromises = snap.docs.map(d => deleteDoc(d.ref));
-                            await Promise.all(deletePromises);
-                        }
+                        const deletePromises = snap.docs.map(d => deleteDoc(d.ref));
+                        await Promise.all(deletePromises);
                     }
 
-                    // --- منطق الكورسات (Study Plan) ---
+                    // 2. مزامنة الكورسات (Study Plan)
+                    // ملاحظة: تأكد أن اسم الحقل في Firebase هو 'studySheetLink' 
                     if (data.studySheetLink) {
-                        console.log("Auto-syncing Study Plan...");
                         await syncStudyFromSheets(data.studySheetLink);
                     } else {
+                        // لو الرابط مش موجود، نمسح الكورسات القديمة
                         const snap = await getDocs(collection(db, 'tutors', tutorId, 'courses'));
-                        if (!snap.empty) {
-                            const deletePromises = snap.docs.map(d => deleteDoc(d.ref));
-                            await Promise.all(deletePromises);
-                        }
+                        const deletePromises = snap.docs.map(d => deleteDoc(d.ref));
+                        await Promise.all(deletePromises);
                     }
                 }
             };
             runSyncLogic();
         }
         setLoading(false);
-    }, (error) => {
-        console.error("Error fetching tutor details:", error);
-        setLoading(false);
     });
 
-    // 3. مراقبين الـ Sub-collections (تحديث الشاشة لحظياً)
-    const unsubFlags = onSnapshot(collection(db, 'tutors', tutorId, 'flags'), (s) => {
-        const flagsData = s.docs.map(d => ({ id: d.id, ...d.data() } as Flag));
-        setFlags(flagsData);
-    });
+    // مراقبين الـ Sub-collections (عشان أي تغيير يحصل في Firebase يظهر فوراً في الصفحة)
+    const unsubFlags = onSnapshot(collection(db, 'tutors', tutorId, 'flags'), (s) => 
+        setFlags(s.docs.map(d => ({ id: d.id, ...d.data() } as Flag)))
+    );
 
-    const unsubCourses = onSnapshot(collection(db, 'tutors', tutorId, 'courses'), (s) => {
-        const coursesData = s.docs.map(d => ({ id: d.id, ...d.data() } as Course));
-        setCourses(coursesData);
-    });
+    const unsubCourses = onSnapshot(collection(db, 'tutors', tutorId, 'courses'), (s) => 
+        setCourses(s.docs.map(d => ({ id: d.id, ...d.data() } as Course)))
+    );
 
-    // 4. تنظيف الذاكرة عند الخروج من الصفحة
     return () => {
         unsubDetails();
         unsubFlags();
         unsubCourses();
     };
-}, [tutorId]); // التحديث يعتمد فقط على تغيير المدرس
+}, [tutorId]);
 
 
   const handleSaveDetails = async () => {
