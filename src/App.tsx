@@ -2016,6 +2016,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   const [sheetTotalStudy, setSheetTotalStudy] = useState<any[]>([]); 
   const [courseSearch, setCourseSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [sheetSyncing, setSheetSyncing] = useState({ study: false, flags: false });
 
   // Edit states
   const [isEditing, setIsEditing] = useState(false);
@@ -2196,6 +2197,8 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
         return;
     }
 
+    if (savedUrl) setSheetSyncing(prev => ({ ...prev, study: true }));
+
     Papa.parse(SHEET_URL, {
         download: true,
         header: true,
@@ -2209,6 +2212,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
 
             if (!currentRow) {
                 if (!savedUrl) alert(`❌ لم يتم العثور على المدرس رقم (${currentTutorId}) في الشيت.`);
+                if (savedUrl) setSheetSyncing(prev => ({ ...prev, study: false }));
                 return;
             }
 
@@ -2217,13 +2221,13 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
             // 3. فحص كل الأعمدة
             Object.keys(currentRow).forEach(col => {
                 const value = String(currentRow[col]).trim().toLowerCase();
-                
+
                 if (value === "done & published" || value === "done") {
                     const cleanColName = col.replace(/\n/g, ' ').trim();
 
                     if (cleanColName.toLowerCase() === 'free') {
                         newCourses.push({ name: "Free", grade: "Done" });
-                    } 
+                    }
                     else {
                         const match = cleanColName.match(/(M\d+[:\s\d-]*\[.*?\]|M\d+.*)/i);
                         newCourses.push({
@@ -2236,10 +2240,15 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
 
             if (newCourses.length === 0) {
                 if (!savedUrl) alert("ℹ️ تم العثور على المدرس، لكن لا يوجد أي كورس بحالة 'Done'");
+                if (savedUrl) setSheetSyncing(prev => ({ ...prev, study: false }));
                 return;
             }
 
-            // 4. التحديث في Firestore
+            // 4. تحديث الـ UI مباشرة (بدون ما ننتظر Firestore)
+            const coursesData = newCourses.map((c, i) => ({ ...c, id: `sheet-${i}` }));
+            setCourses(sortCourses(coursesData));
+
+            // 5. التحديث في Firestore (في الخلفية)
             try {
                 // حفظ اللينك في بيانات المدرس الأساسية
                 const tutorRef = doc(db, 'tutors', tutorId);
@@ -2264,6 +2273,8 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
             } catch (err) {
                 console.error(err);
                 if (!savedUrl) alert("❌ فشل تحديث البيانات في Firestore");
+            } finally {
+                if (savedUrl) setSheetSyncing(prev => ({ ...prev, study: false }));
             }
         }
     });
@@ -2294,13 +2305,15 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   let rawUrl = savedUrl || window.prompt("من فضلك أدخل رابط الشير (تأكد أنك واقف على تاب الفلاجات):");
   if (!rawUrl || !rawUrl.includes('google.com')) return;
 
+  if (savedUrl) setSheetSyncing(prev => ({ ...prev, flags: true }));
+
   const gidMatch = rawUrl.match(/gid=([0-9]+)/);
   const gidParam = gidMatch ? `&gid=${gidMatch[1]}` : '';
   const SHEET_URL = rawUrl.replace(/\/edit.*$/, `/export?format=csv${gidParam}`);
 
   Papa.parse(SHEET_URL, {
     download: true,
-    header: false, 
+    header: false,
     skipEmptyLines: true,
     complete: async (results) => {
       const rows = results.data as any[];
@@ -2312,12 +2325,13 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
       console.log("🔍 [DEBUG] Searching in sheet for ID:", searchId);
 
       // فلترة الصفوف بناءً على الـ ID البشري (T-4538)
-      const tutorRows = rows.filter(row => 
+      const tutorRows = rows.filter(row =>
         String(row[2] || '').trim() === searchId
       );
 
       if (tutorRows.length === 0) {
         if (!savedUrl) alert(`لم يتم العثور على Tutor ID: ${searchId} في هذا الشيت.`);
+        if (savedUrl) setSheetSyncing(prev => ({ ...prev, flags: false }));
         return;
       }
 
@@ -2328,17 +2342,22 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
         reason: row[9] || '-',
         studentId: row[6] || 'N/A',
         createdAt: new Date().toISOString(),
-        rawDate: new Date(row[4] || 0).getTime() 
+        rawDate: new Date(row[4] || 0).getTime()
       }));
 
       newFlags.sort((a, b) => b.rawDate - a.rawDate);
 
+      // 3. تحديث الـ UI مباشرة (بدون ما ننتظر Firestore)
+      const flagsData = newFlags.map((f, i) => ({ ...f, id: `flag-sheet-${i}` }));
+      setFlags(flagsData);
+
+      // 4. التحديث في Firestore (في الخلفية)
       try {
         // هنا بنستخدم الـ UID (الحروف الكتير) فقط عشان نوصل للمكان في Firebase
         // tutorId اللي مبعوت للـ Component هو الـ UID
-        const tutorUID = tutorId; 
+        const tutorUID = tutorId;
         const tutorRef = doc(db, 'tutors', tutorUID);
-        
+
         // 1. تحديث اللينك
         await updateDoc(tutorRef, { flagsSheetLink: rawUrl });
 
@@ -2346,12 +2365,12 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
         const flagsRef = collection(db, 'tutors', tutorUID, 'flags');
         const oldDocs = await getDocs(flagsRef);
         await Promise.all(oldDocs.docs.map(d => deleteDoc(d.ref)));
-        
+
         for (const flag of newFlags) {
           const { rawDate, ...flagToSave } = flag;
           await addDoc(flagsRef, {
               ...flagToSave,
-              mentorFeedback: "", 
+              mentorFeedback: "",
               tutorFeedback: ""
           });
         }
@@ -2360,6 +2379,8 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
       } catch (err) {
         console.error("Firebase Error:", err);
         if (!savedUrl) alert("حصلت مشكلة وأنا بحدث Firebase.");
+      } finally {
+        if (savedUrl) setSheetSyncing(prev => ({ ...prev, flags: false }));
       }
     }
   });
@@ -2807,10 +2828,16 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
           icon={<BookOpen size={20} />}
           onAdd={isMentor ? handleAddCourse : undefined}
         >
+          {sheetSyncing.study && (
+            <div className="flex items-center justify-center py-2">
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-[#0047AB]"></div>
+              <span className="ml-2 text-xs text-gray-500">Syncing from sheet...</span>
+            </div>
+          )}
           <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
             {(() => {
               // 1. الفلترة بناءً على السيرش
-              const filtered = courses.filter(c => 
+              const filtered = courses.filter(c =>
                 (c.name || "").toLowerCase().includes(courseSearch.toLowerCase())
               );
 
@@ -2882,9 +2909,15 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
               )}
             </div>
           } 
-          icon={<FlagIcon size={20} />} 
+          icon={<FlagIcon size={20} />}
           onAdd={isMentor ? handleAddFlag : undefined}
         >
+          {sheetSyncing.flags && (
+            <div className="flex items-center justify-center py-2">
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-red-500"></div>
+              <span className="ml-2 text-xs text-gray-500">Syncing flags from sheet...</span>
+            </div>
+          )}
           <div className="space-y-6 max-h-[600px] overflow-y-auto pr-2">
             {flags.map((f) => (
               <div key={f.id} className="p-4 border rounded-xl space-y-3 relative group bg-white shadow-sm">
