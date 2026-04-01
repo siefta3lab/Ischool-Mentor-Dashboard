@@ -11,11 +11,12 @@ import {
   updateDoc, 
   deleteDoc, 
   addDoc, 
-  where, 
+  where,
   orderBy,
-  getDocFromServer, 
+  getDocFromServer,
   Timestamp,
-  increment 
+  increment,
+  CollectionReference 
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { initializeApp, getApp, getApps } from 'firebase/app';
@@ -2013,9 +2014,9 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   const [reports, setReports] = useState<QualityReport[]>([]);
   const [flags, setFlags] = useState<Flag[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
-  const [sheetTotalStudy, setSheetTotalStudy] = useState<any[]>([]); 
   const [courseSearch, setCourseSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [initialSyncDone, setInitialSyncDone] = useState(false);
   const [sheetSyncing, setSheetSyncing] = useState({ study: false, flags: false });
 
   // Edit states
@@ -2034,70 +2035,246 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
     onConfirm: () => {},
   });
 
+  // ============================================================
+  // PARSE HELPERS — Promise-based wrappers for Papa Parse
+  // ============================================================
+  const parseSheetCSV = (sheetUrl: string, tutorId: string): Promise<any[]> => {
+    return new Promise((resolve, reject) => {
+      Papa.parse(sheetUrl, {
+        download: true,
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          try {
+            const rows = results.data as any[];
+            const currentTutorId = String(tutorId).trim();
+            const currentRow = rows.find(r => String(r.ID || r.id).trim() === currentTutorId);
+            if (!currentRow) { resolve([]); return; }
+            const newCourses: any[] = [];
+            Object.keys(currentRow).forEach(col => {
+              const value = String(currentRow[col]).trim().toLowerCase();
+              if (value === "done & published" || value === "done") {
+                const cleanColName = col.replace(/\n/g, ' ').trim();
+                if (cleanColName.toLowerCase() === 'free') {
+                  newCourses.push({ name: "Free", grade: "Done" });
+                } else {
+                  const match = cleanColName.match(/(M\d+[:\s\d-]*\[.*?\]|M\d+.*)/i);
+                  newCourses.push({ name: match ? match[0] : cleanColName, grade: "Done" });
+                }
+              }
+            });
+            resolve(newCourses);
+          } catch (err) { reject(err); }
+        },
+        error: (err) => reject(err)
+      });
+    });
+  };
+
+  const parseFlagsCSV = (rawUrl: string, searchId: string): Promise<any[]> => {
+    return new Promise((resolve, reject) => {
+      const gidMatch = rawUrl.match(/gid=([0-9]+)/);
+      const gidParam = gidMatch ? `&gid=${gidMatch[1]}` : '';
+      const SHEET_URL = rawUrl.replace(/\/edit.*$/, `/export?format=csv${gidParam}`);
+      Papa.parse(SHEET_URL, {
+        download: true,
+        header: false,
+        skipEmptyLines: true,
+        complete: (results) => {
+          try {
+            const rows = results.data as any[];
+            const tutorRows = rows.filter(row => String(row[2] || '').trim() === searchId);
+            if (tutorRows.length === 0) { resolve([]); return; }
+            const newFlags = tutorRows.map(row => ({
+              date: `${row[4] || ''} - ${row[5] || ''}`,
+              type: String(row[8] || 'Yellow Flag').trim(),
+              status: String(row[12] || 'Working on').trim(),
+              reason: row[9] || '-',
+              studentId: row[6] || 'N/A',
+              createdAt: new Date().toISOString(),
+              rawDate: new Date(row[4] || 0).getTime()
+            }));
+            newFlags.sort((a, b) => b.rawDate - a.rawDate);
+            resolve(newFlags);
+          } catch (err) { reject(err); }
+        },
+        error: (err) => reject(err)
+      });
+    });
+  };
+
+  // ============================================================
+  // HELPER: Delete all documents in a collection
+  // ============================================================
+  const deleteDocChildren = async (collRef: CollectionReference) => {
+    const snaps = await getDocs(collRef);
+    if (snaps.empty) return;
+    await Promise.all(snaps.docs.map(d => deleteDoc(d.ref)));
+  };
+
+  // ============================================================
+  // STRICT SYNC-ON-LOAD: Delete → Sync → Populate (NO stale data)
+  // ============================================================
   useEffect(() => {
-    // 1. مراقب بيانات المدرس الأساسية (عشان نجيب منها اللينكات)
-    const unsubDetails = onSnapshot(doc(db, 'tutors', tutorId), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setDetails(data as TutorDetails);
-        setEditData(data);
+    if (!tutorId) return;
 
-        // --- الجزء الذكي: المزامنة التلقائية عند وجود لينكات محفوظة ---
-        // بنشغلهم فقط لو الداتا لسه بتحمل أول مرة أو اللينكات موجودة
-        if (data.flagsSheetLink) {
-          syncFlagsFromSheets(data.flagsSheetLink);
+    let isMounted = true;
+
+    const init = async () => {
+      setLoading(true);
+
+      try {
+        // 1. FETCH tutor record (one-time read, NOT snapshot)
+        const tutorSnap = await getDoc(doc(db, 'tutors', tutorId));
+        if (!isMounted || !tutorSnap.exists()) {
+          setLoading(false);
+          return;
         }
-        if (data.studySheetLink) {
-          syncStudyFromSheets(data.studySheetLink);
+
+        const tutorData = tutorSnap.data() as TutorDetails;
+        setDetails(tutorData);
+        setEditData(tutorData);
+
+        // ============================================================
+        // STEP A: Total Study (courses) — Delete → Sync → Populate
+        // ============================================================
+        if (tutorData.studySheetLink) {
+          setSheetSyncing(prev => ({ ...prev, study: true }));
+
+          try {
+            // A1. WIPE existing courses from Firestore FIRST
+            const coursesRef = collection(db, 'tutors', tutorId, 'courses');
+            const oldCourses = await getDocs(coursesRef);
+            await Promise.all(oldCourses.docs.map(d => deleteDoc(d.ref)));
+
+            // A2. SYNC from sheet
+            const parsed = await parseSheetCSV(tutorData.studySheetLink, tutorData.id || tutorId);
+            if (!isMounted) return;
+
+            if (parsed.length > 0) {
+              // A3. POPULATE with fresh data
+              const newCourses = parsed.map((c, i) => ({ ...c, id: `sheet-${i}` }));
+              const freshRef = collection(db, 'tutors', tutorId, 'courses');
+              await Promise.all(newCourses.map(c => addDoc(freshRef, { ...c, createdAt: new Date().toISOString() })));
+              if (isMounted) setCourses(sortCourses(newCourses));
+            } else {
+              if (isMounted) setCourses([]);
+            }
+          } catch (err) {
+            console.error("[SyncStudy] Failed:", err);
+            // CRITICAL: If sync fails, old data stays deleted — UI will show empty
+            if (isMounted) setCourses([]);
+          } finally {
+            if (isMounted) setSheetSyncing(prev => ({ ...prev, study: false }));
+          }
+        } else {
+          // NO LINK: Wipe all courses, show empty
+          await deleteDocChildren(collection(db, 'tutors', tutorId, 'courses'));
+          if (isMounted) setCourses([]);
         }
-        // -------------------------------------------------------
+
+        // ============================================================
+        // STEP B: Flags — Delete → Sync → Populate
+        // ============================================================
+        if (tutorData.flagsSheetLink) {
+          setSheetSyncing(prev => ({ ...prev, flags: true }));
+
+          try {
+            // B1. WIPE existing flags from Firestore FIRST
+            const flagsRef = collection(db, 'tutors', tutorId, 'flags');
+            const oldFlags = await getDocs(flagsRef);
+            await Promise.all(oldFlags.docs.map(d => deleteDoc(d.ref)));
+
+            // B2. SYNC from sheet
+            const parsed = await parseFlagsCSV(tutorData.flagsSheetLink, tutorData.tutorCustomId || tutorData.id || tutorId);
+            if (!isMounted) return;
+
+            if (parsed.length > 0) {
+              // B3. POPULATE with fresh data
+              const freshRef = collection(db, 'tutors', tutorId, 'flags');
+              for (const flag of parsed) {
+                const { rawDate, ...flagClean } = flag;
+                await addDoc(freshRef, { ...flagClean });
+              }
+              if (isMounted) setFlags(parsed);
+            } else {
+              if (isMounted) setFlags([]);
+            }
+          } catch (err) {
+            console.error("[SyncFlags] Failed:", err);
+            // CRITICAL: If sync fails, old data stays deleted — UI will show empty
+            if (isMounted) setFlags([]);
+          } finally {
+            if (isMounted) setSheetSyncing(prev => ({ ...prev, flags: false }));
+          }
+        } else {
+          // NO LINK: Wipe all flags, show empty
+          await deleteDocChildren(collection(db, 'tutors', tutorId, 'flags'));
+          if (isMounted) setFlags([]);
+        }
+
+        // ============================================================
+        // STEP C: Mark sync done, then set up real-time listeners
+        // ============================================================
+        if (isMounted) setInitialSyncDone(true);
+      } catch (err) {
+        console.error("[TutorDetail] Init error:", err);
+        handleFirestoreError(err as Error, OperationType.GET, `tutors/${tutorId}`);
+      } finally {
+        if (isMounted) setLoading(false);
       }
-      setLoading(false);
-    }, (error) => {
-      setLoading(false);
-      handleFirestoreError(error, OperationType.GET, `tutors/${tutorId}`);
-    });
+    };
 
+    init();
+
+    return () => { isMounted = false; };
+  }, [tutorId]);
+
+  // ============================================================
+  // REAL-TIME LISTENERS (only active after initial sync completes)
+  // ============================================================
+  useEffect(() => {
+    if (!tutorId || !initialSyncDone) return;
+
+    // Profile listener (not sheet-related, keep real-time)
     const unsubProfile = onSnapshot(doc(db, 'users', tutorId), (doc) => {
-      if (doc.exists()) {
-        setTutorProfile(doc.data() as UserProfile);
-      }
-    }, (error) => {
-      console.error("Error fetching tutor profile:", error);
-    });
+      if (doc.exists()) setTutorProfile(doc.data() as UserProfile);
+    }, (error) => console.error("Error fetching tutor profile:", error));
 
+    // Vacations — real-time
     const unsubVacations = onSnapshot(collection(db, 'tutors', tutorId, 'vacations'), (snap) => {
       setVacations(snap.docs.map(d => ({ id: d.id, ...d.data() } as Vacation)));
     }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/vacations`));
 
+    // Reports — real-time
     const unsubReports = onSnapshot(collection(db, 'tutors', tutorId, 'qualityReports'), (snap) => {
       setReports(snap.docs.map(d => ({ id: d.id, ...d.data() } as QualityReport)));
     }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/qualityReports`));
 
-    const unsubFlags = onSnapshot(collection(db, 'tutors', tutorId, 'flags'), (snap) => {
-      setFlags(snap.docs.map(d => ({ id: d.id, ...d.data() } as Flag)));
-    }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/flags`));
-
+    // Courses — real-time (only after sync done)
     const unsubCourses = onSnapshot(collection(db, 'tutors', tutorId, 'courses'), (snap) => {
       setCourses(snap.docs.map(d => ({ id: d.id, ...d.data() } as Course)));
     }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/courses`));
 
-    registerListener(unsubDetails);
+    // Flags — real-time (only after sync done)
+    const unsubFlags = onSnapshot(collection(db, 'tutors', tutorId, 'flags'), (snap) => {
+      setFlags(snap.docs.map(d => ({ id: d.id, ...d.data() } as Flag)));
+    }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/flags`));
+
     registerListener(unsubProfile);
     registerListener(unsubVacations);
     registerListener(unsubReports);
-    registerListener(unsubFlags);
     registerListener(unsubCourses);
+    registerListener(unsubFlags);
 
     return () => {
-      unsubDetails();
       unsubProfile();
       unsubVacations();
       unsubReports();
-      unsubFlags();
       unsubCourses();
+      unsubFlags();
     };
-  }, [tutorId]);
+  }, [tutorId, initialSyncDone]);
 
   const handleSaveDetails = async () => {
     try {
@@ -2188,6 +2365,9 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
       }
     };
 
+  // ============================================================
+  // MANUAL SYNC (for the "Sync from Sheets" button)
+  // ============================================================
   const syncStudyFromSheets = async (savedUrl?: string) => {
     // 1. لو فيه لينك محفوظ استخدمه، لو مفيش اطلب لينك جديد
     const SHEET_URL = savedUrl || window.prompt("من فضلك أدخل رابط الـ CSV (Publish to Web):");
