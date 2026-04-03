@@ -2039,33 +2039,31 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   // ============================================================
   // GVIZ PARSE HELPERS — Server-side query, targeted columns,
   // batch writes, TRIM-safe string matching
-  //
-  // STUDY SHEET:  Column A (idx 0) = ID, data cols from D (idx 3) onward
-  // FLAGS SHEET:  Column C (idx 2) = Tutor ID, explicit col selection
   // ============================================================
 
   // --- Study Sheet GViz Parser ---
-  // 1. Fetch all rows WHERE TRIM(A) = tutorId (headers=0 keeps header row in results)
-  // 2. Iterate cols from D onward; header = course name, cell value must be
-  //    exactly "Done & Published" to be synced
   const gvizStudyParser = (
     sheetUrl: string,
     tutorId: string
   ): Promise<{ courses: any[]; rawRow: Record<string, string> }> => {
     return new Promise((resolve, reject) => {
+      // Extract spreadsheet ID
       const spreadId = sheetUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)?.[1];
       if (!spreadId) { reject(new Error('Invalid spreadsheet URL')); return; }
 
+      // Extract GID — use tq gid param if present, otherwise first sheet
       const gidMatch = sheetUrl.match(/gid=([0-9]+)/);
       const gidParam = gidMatch ? `&gid=${gidMatch[1]}` : '';
 
-      // headers=0 keeps header row in results; filter server-side by Column A (idx 0)
-      const query = encodeURIComponent(`SELECT * WHERE TRIM(A) = '${tutorId.trim()}'`);
-      const gvizUrl = `https://docs.google.com/spreadsheets/d/${spreadId}/gviz/tq?tqx=out:json${gidParam}&headers=0&tq=${query}`;
+      // Server-side query: select all columns, filter by column C (index 2) = tutorId
+      // TRIM() handles accidental trailing/leading spaces in sheet cells
+      const query = encodeURIComponent(`SELECT * WHERE TRIM(C) = '${tutorId.trim()}'`);
+      const gvizUrl = `https://docs.google.com/spreadsheets/d/${spreadId}/gviz/tq?tqx=out:json${gidParam}&headers=1&tq=${query}`;
 
       fetch(gvizUrl)
         .then(res => res.text())
         .then(text => {
+          // GViz returns: google.visualization.Query.setResponse({...})
           const jsonStr = text.replace(/^[^(]+\(/, '').replace(/\);?\s*$/, '');
           const response = JSON.parse(jsonStr);
 
@@ -2080,41 +2078,24 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
             return;
           }
 
-          // Row 0 = header row (because headers=0), Row 1+ = data
-          const headerRow = table.rows[0];
-          const dataRow = table.rows[1];
-          if (!headerRow || !dataRow) {
-            resolve({ courses: [], rawRow: {} });
-            return;
-          }
-
           const rawRow: Record<string, string> = {};
+          table.columns.forEach((col: string, i: number) => {
+            const cellVal = table.rows[0].c[i]?.v ?? '';
+            rawRow[col] = String(cellVal);
+          });
+
+          // Parse columns where value === "done & published" or "done"
           const newCourses: any[] = [];
-
-          // Iterate every column
-          headerRow.c.forEach((cell: any, colIdx: number) => {
-            const headerName = String(cell?.v ?? '').trim();
-            const cellValue = String(dataRow.c[colIdx]?.v ?? '').trim();
-
-            rawRow[headerName] = cellValue;
-
-            // Start from Column D (index 3) — skip A, B, C
-            if (colIdx < 3) return;
-
-            // Exactly "Done & Published" — anything else is ignored
-            if (cellValue !== 'Done & Published') return;
-
-            // Extract course name from header
-            const cleanHeader = headerName.replace(/\n/g, ' ').trim();
-            if (cleanHeader.toLowerCase() === 'free') {
-              newCourses.push({ name: 'Free', grade: 'Done & Published' });
-            } else {
-              // Extract module pattern (e.g. M1, M2, M3[Extra])
-              const match = cleanHeader.match(/(M\d+[:\s\d-]*\[.*?\]|M\d+.*)/i);
-              newCourses.push({
-                name: match ? match[0] : cleanHeader,
-                grade: 'Done & Published'
-              });
+          Object.keys(rawRow).forEach(col => {
+            const value = rawRow[col].trim().toLowerCase();
+            if (value === 'done & published' || value === 'done') {
+              const cleanColName = col.replace(/\n/g, ' ').trim();
+              if (cleanColName.toLowerCase() === 'free') {
+                newCourses.push({ name: 'Free', grade: 'Done' });
+              } else {
+                const match = cleanColName.match(/(M\d+[:\s\d-]*\[.*?\]|M\d+.*)/i);
+                newCourses.push({ name: match ? match[0] : cleanColName, grade: 'Done' });
+              }
             }
           });
 
@@ -2125,9 +2106,6 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   };
 
   // --- Flags Sheet GViz Parser ---
-  // Select: C=ID, E=Session Date, F=Time Slot, G=Group ID, I=Flag Type, J=Flag Comment
-  // Filter: TRIM(C) = tutorSpecialId
-  // Sort: Descending by Session Date (Column E)
   const gvizFlagsParser = (
     rawUrl: string,
     searchId: string
@@ -2139,9 +2117,10 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
       const gidMatch = rawUrl.match(/gid=([0-9]+)/);
       const gidParam = gidMatch ? `&gid=${gidMatch[1]}` : '';
 
-      // Explicit column selection: C, E, F, G, I, J
+      // Column indices for flags: C=ID(2), D=date1(3), E=date2(4), G=studentId(6),
+      // I=flagType(8), J=reason(9), M=status(12)
       const query = encodeURIComponent(
-        `SELECT C, E, F, G, I, J WHERE TRIM(C) = '${searchId.trim()}' ORDER BY E DESC`
+        `SELECT C, D, E, G, I, J, M WHERE TRIM(C) = '${searchId.trim()}'`
       );
       const gvizUrl = `https://docs.google.com/spreadsheets/d/${spreadId}/gviz/tq?tqx=out:json${gidParam}&headers=1&tq=${query}`;
 
@@ -2162,39 +2141,17 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
             return;
           }
 
-          // GViz returns: cols = [C, E, F, G, I, J]; rows = matched data
-          // col idx:  0=C(ID), 1=E(Session Date), 2=F(Time Slot),
-          //          3=G(Group ID), 4=I(Flag Type), 5=J(Flag Comment)
-          const newFlags = table.rows.map((row: any) => {
-            const rawDateStr = row.c[1]?.v ?? '';
-            const sessionDate = String(rawDateStr).trim();
-            const timeSlot = String(row.c[2]?.v ?? '').trim();
-            const groupId = String(row.c[3]?.v ?? '').trim();
-            const flagType = String(row.c[4]?.v ?? 'Yellow Flag').trim();
-            const flagComment = String(row.c[5]?.v ?? '').trim();
+          const newFlags = table.rows.map((row: any, i: number) => ({
+            date: `${row.c[3]?.v ?? ''} - ${row.c[4]?.v ?? ''}`,
+            type: String(row.c[8]?.v ?? 'Yellow Flag').trim(),
+            status: String(row.c[12]?.v ?? 'Working on').trim(),
+            reason: row.c[9]?.v ?? '-',
+            studentId: row.c[6]?.v ?? 'N/A',
+            createdAt: new Date().toISOString(),
+            rawDate: new Date(row.c[3]?.v ?? 0).getTime()
+          }));
 
-            return {
-              // Combined date + time slot for display
-              date: timeSlot ? `${sessionDate} - ${timeSlot}` : sessionDate,
-              // Raw date for sorting (desc is handled by ORDER BY E DESC in query,
-              // but we keep rawDate for potential re-sorts)
-              rawDate: new Date(sessionDate).getTime() || 0,
-              // Flag type mapping
-              type: flagType.toLowerCase().includes('red') ? 'red' : 'yellow',
-              // Fixed status since column M is not in our selection
-              status: 'in progress',
-              // Group ID from Column G
-              groupId,
-              // Flag comment from Column J
-              reason: flagComment || '-',
-              studentId: groupId, // Group ID as student identifier
-              createdAt: new Date().toISOString(),
-            };
-          });
-
-          // Safety sort descending by rawDate (in case API ignores ORDER BY)
           newFlags.sort((a, b) => b.rawDate - a.rawDate);
-
           resolve(newFlags);
         })
         .catch(reject);

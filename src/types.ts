@@ -70,9 +70,6 @@ export interface Flag {
   tutorFeedback: string;
   mentorFeedback: string;
   date: string;
-  groupId?: string;
-  studentId?: string;
-  rawDate?: number;
 }
 
 export interface Course {
