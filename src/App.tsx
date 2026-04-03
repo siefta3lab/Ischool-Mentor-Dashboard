@@ -1455,17 +1455,23 @@ function TutorDashboard({ user, registerListener }: { user: UserProfile, registe
 function MentorSettings({ mentor, onUpdateUser, onBack }: { mentor: UserProfile, onUpdateUser: (u: UserProfile) => void, onBack: () => void }) {
   const { t, lang } = useLang();
   const [logoUrl, setLogoUrl] = useState(mentor.teamLogoURL || '');
+  const [globalStudySheetUrl, setGlobalStudySheetUrl] = useState(mentor.globalStudySheetUrl || '');
+  const [globalFlagsSheetUrl, setGlobalFlagsSheetUrl] = useState(mentor.globalFlagsSheetUrl || '');
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [globalSyncing, setGlobalSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     try {
       await updateDoc(doc(db, 'users', mentor.uid), {
-        teamLogoURL: logoUrl.trim()
+        teamLogoURL: logoUrl.trim(),
+        globalStudySheetUrl: globalStudySheetUrl.trim(),
+        globalFlagsSheetUrl: globalFlagsSheetUrl.trim()
       });
-      onUpdateUser({ ...mentor, teamLogoURL: logoUrl.trim() });
+      onUpdateUser({ ...mentor, teamLogoURL: logoUrl.trim(), globalStudySheetUrl: globalStudySheetUrl.trim(), globalFlagsSheetUrl: globalFlagsSheetUrl.trim() });
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
@@ -1474,6 +1480,142 @@ function MentorSettings({ mentor, onUpdateUser, onBack }: { mentor: UserProfile,
       setSaving(false);
     }
   };
+
+  // GViz fetch helper — parses the Google Visualization JSON wrapper
+  const fetchGViz = async (sheetId: string, gid: string, query: string): Promise<{ rows: any[], cols: any[] }> => {
+    const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&tq=${encodeURIComponent(query)}&gid=${gid}`;
+    const res = await fetch(url);
+    const text = await res.text();
+    const json = text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1);
+    const data = JSON.parse(json);
+    return { rows: data.table.rows, cols: data.table.cols };
+  };
+
+  // Extract sheet ID from a full Google Sheets URL
+  const extractSheetId = (url: string): string | null => {
+    const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+    return match ? match[1] : null;
+  };
+
+  // Extract gid from a full Google Sheets URL
+  const extractGid = (url: string): string => {
+    const match = url.match(/gid=([0-9]+)/);
+    return match ? match[1] : '0';
+  };
+
+  // Global Sync — reads both master sheets and writes per-tutor data to Firestore
+  const handleGlobalSync = async () => {
+    if (!globalStudySheetUrl.trim() || !globalFlagsSheetUrl.trim()) {
+      setSyncMessage({ type: 'error', text: 'Please save both Sheet URLs before syncing.' });
+      return;
+    }
+
+    const studySheetId = extractSheetId(globalStudySheetUrl);
+    const flagsSheetId = extractSheetId(globalFlagsSheetUrl);
+    const studyGid = extractGid(globalStudySheetUrl);
+    const flagsGid = extractGid(globalFlagsSheetUrl);
+
+    if (!studySheetId || !flagsSheetId) {
+      setSyncMessage({ type: 'error', text: 'Invalid Sheet URL format. Make sure to paste the full "edit" URL.' });
+      return;
+    }
+
+    setGlobalSyncing(true);
+    setSyncMessage(null);
+
+    try {
+      // STEP A — Fetch full Study Sheet
+      const { rows: studyRows } = await fetchGViz(studySheetId, studyGid, 'SELECT *');
+
+      // STEP B — Fetch full Flags Sheet
+      const { rows: flagsRows } = await fetchGViz(flagsSheetId, flagsGid, 'SELECT *');
+
+      // STEP C — Get all tutors under this mentor from Firestore
+      const tutorsQuery = await getDocs(query(collection(db, 'users'), where('role', '==', 'tutor'), where('mentorId', '==', mentor.uid)));
+      const tutorDocs = tutorsQuery.docs;
+
+      for (const tutorDoc of tutorDocs) {
+        const tutorData = tutorDoc.data();
+        const specialId = String(tutorData.tutorCustomId || tutorData.tutorId || '').trim();
+        if (!specialId) continue;
+
+        // --- Study Plan mapping (column A = ID, keep cols where value = "Done & Published") ---
+        const tutorStudyRow = studyRows.find((r: any) => {
+          const colA = r.c[0];
+          return colA && String(colA.v || '').trim() === specialId;
+        });
+
+        if (tutorStudyRow) {
+          const newCourses: any[] = [];
+          const cols = tutorStudyRow.c;
+          for (let colIdx = 2; colIdx < cols.length; colIdx++) {
+            const cell = cols[colIdx];
+            if (!cell) continue;
+            const rawVal = cell.v;
+            if (!rawVal) continue;
+            const value = String(rawVal).trim().toLowerCase();
+            if (value === 'done & published' || value === 'done') {
+              const labelCell = studyRows[0]?.c[colIdx];
+              const cleanColName = labelCell ? String(labelCell.v || '').replace(/\n/g, ' ').trim() : `col${colIdx}`;
+              if (cleanColName.toLowerCase() === 'free') {
+                newCourses.push({ name: 'Free', grade: 'Done' });
+              } else {
+                const match = cleanColName.match(/(M\d+[:\s\d-]*\[.*?\]|M\d+.*)/i);
+                newCourses.push({ name: match ? match[0] : cleanColName, grade: 'Done' });
+              }
+            }
+          }
+
+          if (newCourses.length > 0) {
+            const coursesRef = collection(db, 'tutors', tutorDoc.id, 'courses');
+            const oldCourses = await getDocs(coursesRef);
+            await Promise.all(oldCourses.docs.map(d => deleteDoc(d.ref)));
+            await Promise.all(newCourses.map(c => addDoc(coursesRef, { ...c, createdAt: new Date().toISOString() })));
+          }
+
+          localStorage.setItem(`studyplan_cache_${specialId}`, JSON.stringify(newCourses));
+        }
+
+        // --- Flags mapping (column C = Tutor ID) ---
+        const tutorFlagsRows = flagsRows.filter((r: any) => {
+          const colC = r.c[2];
+          return colC && String(colC.v || '').trim() === specialId;
+        });
+
+        if (tutorFlagsRows.length > 0) {
+          const newFlags = tutorFlagsRows.map((row: any) => ({
+            date: `${row.c[4]?.v || ''} - ${row.c[5]?.v || ''}`,
+            type: String(row.c[8]?.v || 'Yellow Flag').trim(),
+            status: String(row.c[12]?.v || 'Working on').trim(),
+            reason: row.c[9]?.v || '-',
+            studentId: row.c[6]?.v || 'N/A',
+            createdAt: new Date().toISOString(),
+            rawDate: new Date(row.c[4]?.v || 0).getTime()
+          }));
+
+          newFlags.sort((a: any, b: any) => b.rawDate - a.rawDate);
+
+          const flagsRef = collection(db, 'tutors', tutorDoc.id, 'flags');
+          const oldFlags = await getDocs(flagsRef);
+          await Promise.all(oldFlags.docs.map(d => deleteDoc(d.ref)));
+
+          for (const flag of newFlags) {
+            const { rawDate, ...flagClean } = flag;
+            await addDoc(flagsRef, { ...flagClean, mentorFeedback: '', tutorFeedback: '' });
+          }
+
+          localStorage.setItem(`flags_cache_${specialId}`, JSON.stringify(newFlags));
+        }
+      }
+
+      setSyncMessage({ type: 'success', text: 'Global sync completed successfully.' });
+    } catch (err) {
+      console.error('[GlobalSync] Error:', err);
+      setSyncMessage({ type: 'error', text: 'Sync failed. Check Sheet URLs and try again.' });
+    } finally {
+      setGlobalSyncing(false);
+    }
+  }; // GViz refactor
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -1514,8 +1656,8 @@ function MentorSettings({ mentor, onUpdateUser, onBack }: { mentor: UserProfile,
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <LinkIcon size={16} className="text-gray-400" />
                 </div>
-                <input 
-                  type="url" 
+                <input
+                  type="url"
                   value={logoUrl}
                   onChange={(e) => setLogoUrl(e.target.value)}
                   placeholder="https://example.com/logo.png"
@@ -1523,6 +1665,74 @@ function MentorSettings({ mentor, onUpdateUser, onBack }: { mentor: UserProfile,
                 />
               </div>
             </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-2 tracking-wider">
+                Master Study Sheet URL
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <LinkIcon size={16} className="text-gray-400" />
+                </div>
+                <input
+                  type="url"
+                  value={globalStudySheetUrl}
+                  onChange={(e) => setGlobalStudySheetUrl(e.target.value)}
+                  placeholder="https://docs.google.com/spreadsheets/d/.../edit"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#89CFF0] outline-none transition-all text-sm"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-2 tracking-wider">
+                Master Flags Sheet URL
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <LinkIcon size={16} className="text-gray-400" />
+                </div>
+                <input
+                  type="url"
+                  value={globalFlagsSheetUrl}
+                  onChange={(e) => setGlobalFlagsSheetUrl(e.target.value)}
+                  placeholder="https://docs.google.com/spreadsheets/d/.../edit"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#89CFF0] outline-none transition-all text-sm"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Global Sync Section */}
+          <div className="border-t border-gray-100 pt-4">
+            <button
+              type="button"
+              onClick={handleGlobalSync}
+              disabled={globalSyncing}
+              className="w-full bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white px-6 py-3 rounded-xl font-bold transition-all shadow-lg shadow-green-200 flex items-center justify-center gap-2"
+            >
+              {globalSyncing ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Syncing All Tutors...
+                </>
+              ) : (
+                <>
+                  <Globe size={18} />
+                  Global Sync — Update All Tutors from Sheets
+                </>
+              )}
+            </button>
+            {syncMessage && (
+              <div className={`mt-3 p-3 rounded-xl text-sm font-bold flex items-center gap-2 ${
+                syncMessage.type === 'success'
+                  ? 'bg-green-50 text-green-700 border border-green-200'
+                  : 'bg-red-50 text-red-700 border border-red-200'
+              }`}>
+                {syncMessage.type === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
+                {syncMessage.text}
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between pt-4">
@@ -1532,7 +1742,7 @@ function MentorSettings({ mentor, onUpdateUser, onBack }: { mentor: UserProfile,
                 {t('saved')}
               </span>
             )}
-            <button 
+            <button
               type="submit"
               disabled={saving}
               className="ml-auto bg-[#0047AB] text-white px-8 py-3 rounded-xl font-bold hover:bg-[#003580] transition-all shadow-lg shadow-blue-200 disabled:opacity-50 flex items-center gap-2"
@@ -2113,7 +2323,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   };
 
   // ============================================================
-  // STRICT SYNC-ON-LOAD: Delete → Sync → Populate (NO stale data)
+  // STALE-WHILE-REVALIDATE: Read cache → set state → Firestore takes over
   // ============================================================
   useEffect(() => {
     if (!tutorId) return;
@@ -2124,7 +2334,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
       setLoading(true);
 
       try {
-        // 1. FETCH tutor record (one-time read, NOT snapshot)
+        // 1. FETCH tutor record
         const tutorSnap = await getDoc(doc(db, 'tutors', tutorId));
         if (!isMounted || !tutorSnap.exists()) {
           setLoading(false);
@@ -2135,87 +2345,26 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
         setDetails(tutorData);
         setEditData(tutorData);
 
-        // ============================================================
-        // STEP A: Total Study (courses) — Delete → Sync → Populate
-        // ============================================================
-        if (tutorData.studySheetLink) {
-          setSheetSyncing(prev => ({ ...prev, study: true }));
+        const specialId = String(tutorData.tutorCustomId || tutorData.id || '').trim();
 
+        // 2. READ localStorage cache immediately — no spinner, no sheet fetch
+        const cachedCourses = localStorage.getItem(`studyplan_cache_${specialId}`);
+        const cachedFlags = localStorage.getItem(`flags_cache_${specialId}`);
+        if (cachedCourses) {
           try {
-            // A1. WIPE existing courses from Firestore FIRST
-            const coursesRef = collection(db, 'tutors', tutorId, 'courses');
-            const oldCourses = await getDocs(coursesRef);
-            await Promise.all(oldCourses.docs.map(d => deleteDoc(d.ref)));
-
-            // A2. SYNC from sheet
-            const parsed = await parseSheetCSV(tutorData.studySheetLink, tutorData.id || tutorId);
-            if (!isMounted) return;
-
-            if (parsed.length > 0) {
-              // A3. POPULATE with fresh data
-              const newCourses = parsed.map((c, i) => ({ ...c, id: `sheet-${i}` }));
-              const freshRef = collection(db, 'tutors', tutorId, 'courses');
-              await Promise.all(newCourses.map(c => addDoc(freshRef, { ...c, createdAt: new Date().toISOString() })));
-              if (isMounted) setCourses(sortCourses(newCourses));
-            } else {
-              if (isMounted) setCourses([]);
-            }
-          } catch (err) {
-            console.error("[SyncStudy] Failed:", err);
-            // CRITICAL: If sync fails, old data stays deleted — UI will show empty
-            if (isMounted) setCourses([]);
-          } finally {
-            if (isMounted) setSheetSyncing(prev => ({ ...prev, study: false }));
-          }
-        } else {
-          // NO LINK: Wipe all courses, show empty
-          await deleteDocChildren(collection(db, 'tutors', tutorId, 'courses'));
-          if (isMounted) setCourses([]);
+            const parsed = JSON.parse(cachedCourses);
+            if (isMounted) setCourses(parsed);
+          } catch { /* ignore corrupted cache */ }
+        }
+        if (cachedFlags) {
+          try {
+            const parsed = JSON.parse(cachedFlags);
+            if (isMounted) setFlags(parsed);
+          } catch { /* ignore corrupted cache */ }
         }
 
-        // ============================================================
-        // STEP B: Flags — Delete → Sync → Populate
-        // ============================================================
-        if (tutorData.flagsSheetLink) {
-          setSheetSyncing(prev => ({ ...prev, flags: true }));
-
-          try {
-            // B1. WIPE existing flags from Firestore FIRST
-            const flagsRef = collection(db, 'tutors', tutorId, 'flags');
-            const oldFlags = await getDocs(flagsRef);
-            await Promise.all(oldFlags.docs.map(d => deleteDoc(d.ref)));
-
-            // B2. SYNC from sheet
-            const parsed = await parseFlagsCSV(tutorData.flagsSheetLink, tutorData.tutorCustomId || tutorData.id || tutorId);
-            if (!isMounted) return;
-
-            if (parsed.length > 0) {
-              // B3. POPULATE with fresh data
-              const freshRef = collection(db, 'tutors', tutorId, 'flags');
-              for (const flag of parsed) {
-                const { rawDate, ...flagClean } = flag;
-                await addDoc(freshRef, { ...flagClean });
-              }
-              if (isMounted) setFlags(parsed);
-            } else {
-              if (isMounted) setFlags([]);
-            }
-          } catch (err) {
-            console.error("[SyncFlags] Failed:", err);
-            // CRITICAL: If sync fails, old data stays deleted — UI will show empty
-            if (isMounted) setFlags([]);
-          } finally {
-            if (isMounted) setSheetSyncing(prev => ({ ...prev, flags: false }));
-          }
-        } else {
-          // NO LINK: Wipe all flags, show empty
-          await deleteDocChildren(collection(db, 'tutors', tutorId, 'flags'));
-          if (isMounted) setFlags([]);
-        }
-
-        // ============================================================
-        // STEP C: Mark sync done, then set up real-time listeners
-        // ============================================================
+        // 3. Mark sync done — real-time listeners (onSnapshot below) will
+        //    fire with Firestore data; onSnapshot also updates localStorage cache
         if (isMounted) setInitialSyncDone(true);
       } catch (err) {
         console.error("[TutorDetail] Init error:", err);
@@ -2253,12 +2402,20 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
 
     // Courses — real-time (only after sync done)
     const unsubCourses = onSnapshot(collection(db, 'tutors', tutorId, 'courses'), (snap) => {
-      setCourses(snap.docs.map(d => ({ id: d.id, ...d.data() } as Course)));
+      const newCourses = snap.docs.map(d => ({ id: d.id, ...d.data() } as Course));
+      setCourses(newCourses);
+      // Update localStorage cache
+      const specialId = String(details?.tutorCustomId || details?.id || '');
+      if (specialId) localStorage.setItem(`studyplan_cache_${specialId}`, JSON.stringify(newCourses));
     }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/courses`));
 
     // Flags — real-time (only after sync done)
     const unsubFlags = onSnapshot(collection(db, 'tutors', tutorId, 'flags'), (snap) => {
-      setFlags(snap.docs.map(d => ({ id: d.id, ...d.data() } as Flag)));
+      const newFlags = snap.docs.map(d => ({ id: d.id, ...d.data() } as Flag));
+      setFlags(newFlags);
+      // Update localStorage cache
+      const specialId = String(details?.tutorCustomId || details?.id || '');
+      if (specialId) localStorage.setItem(`flags_cache_${specialId}`, JSON.stringify(newFlags));
     }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/flags`));
 
     registerListener(unsubProfile);
@@ -2655,18 +2812,12 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* A) Study Plan */}
-        <Card 
+        <Card
           title={
             <div className="flex justify-between items-center w-full">
               <span>{t('studyPlan')}</span>
-              <button 
-                onClick={syncStudyFromSheets}
-                className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs transition-colors flex items-center gap-1"
-              >
-                <span>Sync Sheets</span>
-              </button>
             </div>
-          } 
+          }
           icon={<BookOpen size={20} />}
         >
           <div className="space-y-4">
@@ -2975,23 +3126,11 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
         </Card>
 
         {/* E) Total Study Card */}
-        <Card 
+        <Card
           title={
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center w-full gap-2">
               <div className="flex items-center gap-2">
                 <span>{t('totalStudy')}</span>
-                <button 
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    // نرسل undefined لإجبار الدالة على فتح الـ prompt لطلب لينك جديد
-                    syncStudyFromSheets(undefined); 
-                  }}
-                  className="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-[10px] cursor-pointer transition-colors font-bold"
-                >
-                  Sync from Sheets
-                </button>
               </div>
 
               {/* إضافة خانة البحث */}
@@ -3008,12 +3147,6 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
           icon={<BookOpen size={20} />}
           onAdd={isMentor ? handleAddCourse : undefined}
         >
-          {sheetSyncing.study && (
-            <div className="flex items-center justify-center py-2">
-              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-[#0047AB]"></div>
-              <span className="ml-2 text-xs text-gray-500">Syncing from sheet...</span>
-            </div>
-          )}
           <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
             {(() => {
               // 1. الفلترة بناءً على السيرش
@@ -3075,29 +3208,15 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
         </Card>
 
         {/* F) Flags */}
-        <Card 
+        <Card
           title={
             <div className="flex justify-between items-center w-full">
               <span>{t('flags')}</span>
-              {isMentor && (
-                <button 
-                  onClick={() => syncFlagsFromSheets(undefined)} // تعديل هنا لضمان فتح الـ prompt عند الضغط اليدوي
-                  className="bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded text-[10px] font-bold transition-colors cursor-pointer"
-                >
-                  Sync Flags
-                </button>
-              )}
             </div>
-          } 
+          }
           icon={<FlagIcon size={20} />}
           onAdd={isMentor ? handleAddFlag : undefined}
         >
-          {sheetSyncing.flags && (
-            <div className="flex items-center justify-center py-2">
-              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-red-500"></div>
-              <span className="ml-2 text-xs text-gray-500">Syncing flags from sheet...</span>
-            </div>
-          )}
           <div className="space-y-6 max-h-[600px] overflow-y-auto pr-2">
             {flags.map((f) => (
               <div key={f.id} className="p-4 border rounded-xl space-y-3 relative group bg-white shadow-sm">

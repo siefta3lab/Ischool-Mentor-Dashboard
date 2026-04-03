@@ -16,6 +16,9 @@ export interface UserProfile {
   subTeamName?: string;
   mentorId?: string; // For tutors to link to their mentor
   mentorName?: string; // Cache for easy display
+  tutorCustomId?: string; // The human-readable tutor ID (e.g. T-4688)
+  globalStudySheetUrl?: string; // Master Study Sheet URL for Global Sync
+  globalFlagsSheetUrl?: string; // Master Flags Sheet URL for Global Sync
 }
 
 export interface StudyPlan {
