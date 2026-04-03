@@ -143,7 +143,6 @@ const translations = {
     studyPlan: "Study Plan",
     vacations: "Vacations",
     monthFlags: "Month Flags",
-    lastQualityRate: "Last Quality Rate",
     totalPerformance: "Total Performance",
     last3Months: "Last 3 Months",
     flagRate: "Flag Rate",
@@ -257,7 +256,6 @@ const translations = {
     studyPlan: "خطة الدراسة",
     vacations: "الإجازات",
     monthFlags: "أعلام الشهر",
-    lastQualityRate: "آخر معدل للجودة",
     totalPerformance: "الأداء الكلي",
     last3Months: "آخر 3 أشهر",
     flagRate: "معدل الأعلام",
@@ -1765,7 +1763,6 @@ function MentorDashboard({ onSelectTutor, mentor, registerListener }: { onSelect
   const [tutorDetails, setTutorDetails] = useState<Record<string, TutorDetails>>({});
   const [feedbacks, setFeedbacks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [lastQualityRates, setLastQualityRates] = useState<Record<string, number>>({});
 
   // Stats for Card 2
   const [performanceData, setPerformanceData] = useState<any[]>([]);
@@ -1809,25 +1806,6 @@ function MentorDashboard({ onSelectTutor, mentor, registerListener }: { onSelect
         detailsMap[doc.id] = doc.data() as TutorDetails;
       });
       setTutorDetails(detailsMap);
-
-      // Fetch last quality rate for each tutor
-      const ratesMap: Record<string, number> = {};
-      for (const tutorId of Object.keys(detailsMap)) {
-        try {
-          const qRate = query(
-            collection(db, 'tutors', tutorId, 'qualityReports'),
-            orderBy('month', 'desc')
-          );
-          const rateSnap = await getDocs(qRate);
-          if (!rateSnap.empty) {
-            const first = rateSnap.docs[0].data();
-            ratesMap[tutorId] = first.percentage ?? 0;
-          }
-        } catch {
-          // skip tutors where subcollection read fails (e.g. permissions)
-        }
-      }
-      setLastQualityRates(ratesMap);
 
       // Calculate chart data based on actual performance
       const totalAvg = Object.values(detailsMap).reduce((acc, curr) => {
@@ -1889,7 +1867,7 @@ function MentorDashboard({ onSelectTutor, mentor, registerListener }: { onSelect
                 <th className="px-6 py-4">{t('name')}</th>
                 <th className="px-6 py-4">{t('studyPlan')}</th>
                 <th className="px-6 py-4">{t('vacations')}</th>
-                <th className="px-6 py-4">{t('lastQualityRate')}</th>
+                <th className="px-6 py-4">{t('monthFlags')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -1897,9 +1875,9 @@ function MentorDashboard({ onSelectTutor, mentor, registerListener }: { onSelect
                 const details = tutorDetails[tutor.uid];
                 return (
                   <tr key={tutor.uid} className="hover:bg-[#89CFF0]/5 transition-colors">
-                    <td className="px-6 py-4 font-mono text-gray-500">{tutor.tutorCustomId || tutor.tutorId || tutor.uid}</td>
+                    <td className="px-6 py-4 font-mono text-gray-500">{tutor.tutorId}</td>
                     <td className="px-6 py-4">
-                      <button
+                      <button 
                         onClick={() => onSelectTutor(tutor.uid)}
                         className="text-[#0047AB] font-bold hover:underline flex items-center gap-2"
                       >
@@ -1922,8 +1900,16 @@ function MentorDashboard({ onSelectTutor, mentor, registerListener }: { onSelect
                       <Calendar size={16} className="inline mr-1" />
                       {details?.vacationCount || 0}
                     </td>
-                    <td className="px-6 py-4 text-gray-500">
-                      {lastQualityRates[tutor.uid] != null ? `${lastQualityRates[tutor.uid]}%` : '—'}
+                    <td className="px-6 py-4">
+                      <div className="flex gap-1">
+                        {Array.from({ length: details?.redFlags || 0 }).map((_, i) => (
+                          <div key={`red-${i}`} className="w-3 h-3 rounded-full bg-red-500" title="Red Flag"></div>
+                        ))}
+                        {Array.from({ length: details?.yellowFlags || 0 }).map((_, i) => (
+                          <div key={`yellow-${i}`} className="w-3 h-3 rounded-full bg-yellow-400" title="Yellow Flag"></div>
+                        ))}
+                        {(!details?.redFlags && !details?.yellowFlags) && <span className="text-gray-300">-</span>}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -2236,25 +2222,12 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   const [tutorProfile, setTutorProfile] = useState<UserProfile | null>(null);
   const [vacations, setVacations] = useState<Vacation[]>([]);
   const [reports, setReports] = useState<QualityReport[]>([]);
-  const [studyPlanStatus, setStudyPlanStatus] = useState<any[]>([]);
   const [flags, setFlags] = useState<Flag[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [courseSearch, setCourseSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [initialSyncDone, setInitialSyncDone] = useState(false);
   const [sheetSyncing, setSheetSyncing] = useState({ study: false, flags: false });
-
-  // Performance tab
-  const [perfTab, setPerfTab] = useState('This Month');
-  const [perfData, setPerfData] = useState<{
-    yellowFlags: number;
-    redFlags: number;
-    repeatedFlags: number;
-    avgQualityRate: number;
-    avgWorkRate: number;
-    avgStudyRate: number;
-    studyPlanBreakdown: { status: string; count: number }[];
-  }>({ yellowFlags: 0, redFlags: 0, repeatedFlags: 0, avgQualityRate: 0, avgWorkRate: 0, avgStudyRate: 0, studyPlanBreakdown: [] });
 
   // Edit states
   const [isEditing, setIsEditing] = useState(false);
@@ -2409,95 +2382,6 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   // ============================================================
   // REAL-TIME LISTENERS (only active after initial sync completes)
   // ============================================================
-  // Recalculate perf data when tab or source data changes
-  useEffect(() => {
-    const now = new Date();
-    const cutoffDays: Record<string, number> = {
-      'This Month': 30,
-      'Last 3 Months': 90,
-      'Last 6 Months': 180,
-    };
-    const days = cutoffDays[perfTab] || 30;
-    const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).getTime();
-
-    // Stale-while-revalidate: use localStorage cache first
-    const cached = localStorage.getItem(`perf_cache_${tutorId}_${perfTab}`);
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        setPerfData(parsed);
-      } catch { /* ignore */ }
-    }
-
-    // Filter flags by period
-    const periodFlags = flags.filter((f: any) => {
-      const ts = f.createdAt ? new Date(f.createdAt).getTime() : (f.rawDate || 0);
-      return ts >= cutoff;
-    });
-    const yellowFlags = periodFlags.filter((f: any) => f.type?.toLowerCase().includes('yellow')).length;
-    const redFlags = periodFlags.filter((f: any) => f.type?.toLowerCase().includes('red')).length;
-
-    // Repeated flags: reason appearing more than once
-    const reasonCounts: Record<string, number> = {};
-    periodFlags.forEach((f: any) => {
-      const reason = String(f.reason || '').trim();
-      if (reason && reason !== '-') reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
-    });
-    const repeatedFlags = Object.values(reasonCounts).filter((c) => c > 1).length;
-
-    // Filter quality reports by period (using month string as approximate date)
-    const periodReports = reports.filter((r: any) => {
-      if (!r.month) return false;
-      const parts = r.month.split(' ');
-      if (parts.length >= 2) {
-        const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-        const idx = monthNames.findIndex((m) => m.toLowerCase() === parts[0].toLowerCase());
-        if (idx < 0) return false;
-        const year = parseInt(parts[1]) || now.getFullYear();
-        const reportDate = new Date(year, idx, 1).getTime();
-        return reportDate >= cutoff;
-      }
-      return false;
-    });
-    const avgQualityRate = periodReports.length > 0
-      ? Math.round(periodReports.reduce((s: number, r: any) => s + (r.percentage || 0), 0) / periodReports.length)
-      : 0;
-
-    // Work rate from details.performance.work (snapshot-based, no period filter available)
-    const avgWorkRate = details?.performance?.work || 0;
-
-    // Filter study plan status by period
-    const periodStudyPlans = studyPlanStatus.filter((r: any) => {
-      if (!r.month) return false;
-      const parts = r.month.split('-');
-      if (parts.length >= 2) {
-        const idx = parseInt(parts[0]) - 1;
-        const year = parseInt(parts[1]) || now.getFullYear();
-        const reportDate = new Date(year, idx, 1).getTime();
-        return reportDate >= cutoff;
-      }
-      return false;
-    });
-    const avgStudyRate = periodStudyPlans.length > 0
-      ? Math.round(periodStudyPlans.reduce((s: number, r: any) => {
-          const map: Record<string, number> = { 'Done Both': 100, 'Done One Course': 50, 'In Progress': 25, 'Ignored': 0 };
-          return s + (map[r.status] || 0);
-        }, 0) / periodStudyPlans.length)
-      : 0;
-
-    // Study plan breakdown
-    const statusCounts: Record<string, number> = {};
-    periodStudyPlans.forEach((r: any) => {
-      const st = r.status || 'In Progress';
-      statusCounts[st] = (statusCounts[st] || 0) + 1;
-    });
-    const studyPlanBreakdown = Object.entries(statusCounts).map(([status, count]) => ({ status, count }));
-
-    const newPerf = { yellowFlags, redFlags, repeatedFlags, avgQualityRate, avgWorkRate, avgStudyRate, studyPlanBreakdown };
-    setPerfData(newPerf);
-    localStorage.setItem(`perf_cache_${tutorId}_${perfTab}`, JSON.stringify(newPerf));
-  }, [perfTab, flags, reports, studyPlanStatus, tutorId]);
-
   useEffect(() => {
     if (!tutorId || !initialSyncDone) return;
 
@@ -2515,11 +2399,6 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
     const unsubReports = onSnapshot(collection(db, 'tutors', tutorId, 'qualityReports'), (snap) => {
       setReports(snap.docs.map(d => ({ id: d.id, ...d.data() } as QualityReport)));
     }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/qualityReports`));
-
-    // Study Plan Status — real-time
-    const unsubStudyPlanStatus = onSnapshot(collection(db, 'tutors', tutorId, 'studyPlanStatus'), (snap) => {
-      setStudyPlanStatus(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/studyPlanStatus`));
 
     // Courses — real-time (only after sync done)
     const unsubCourses = onSnapshot(collection(db, 'tutors', tutorId, 'courses'), (snap) => {
@@ -2542,7 +2421,6 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
     registerListener(unsubProfile);
     registerListener(unsubVacations);
     registerListener(unsubReports);
-    registerListener(unsubStudyPlanStatus);
     registerListener(unsubCourses);
     registerListener(unsubFlags);
 
@@ -2550,7 +2428,6 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
       unsubProfile();
       unsubVacations();
       unsubReports();
-      unsubStudyPlanStatus();
       unsubCourses();
       unsubFlags();
     };
@@ -2611,14 +2488,6 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
       reportUrl: ''
     };
     await addDoc(collection(db, 'tutors', tutorId, 'qualityReports'), newVal);
-  };
-
-  const handleAddStudyPlanStatus = async (month: string, status: string) => {
-    await addDoc(collection(db, 'tutors', tutorId, 'studyPlanStatus'), {
-      month,
-      status,
-      tutorId: details?.tutorCustomId || tutorId
-    });
   };
 
   const handleUploadReport = async (reportId: string, pdfLink: string) => {
@@ -2950,7 +2819,6 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
             </div>
           }
           icon={<BookOpen size={20} />}
-          onAdd={isMentor ? handleAddStudyPlanReport : undefined}
         >
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-4">
@@ -3035,210 +2903,6 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
             </div>
             {isEditing && (
               <button onClick={handleSaveDetails} className="w-full bg-[#0047AB] text-white py-2 rounded-lg font-bold">{t('save')}</button>
-            )}
-            {studyPlanReports.length > 0 && (
-              <div className="border-t border-gray-100 pt-4 mt-4 space-y-4">
-                <p className="text-xs font-bold text-gray-500 uppercase">Monthly Entries</p>
-                {studyPlanReports.map((r) => (
-                  <div key={r.id} className="p-4 bg-[#89CFF0]/10 rounded-xl border border-[#89CFF0]/20 space-y-2">
-                    <div className="flex items-center justify-between">
-                      {isMentor ? (
-                        <input
-                          value={r.month}
-                          onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'studyPlan', r.id), { month: e.target.value })}
-                          className="px-3 py-1 bg-[#89CFF0]/20 text-[#0047AB] rounded-full text-xs font-bold uppercase border-none focus:ring-0 w-32"
-                        />
-                      ) : (
-                        <span className="px-3 py-1 bg-[#89CFF0]/20 text-[#0047AB] rounded-full text-xs font-bold uppercase">{r.month}</span>
-                      )}
-                      <div className="flex items-center gap-2">
-                        <span className="text-xl font-bold text-[#0047AB]">{r.studyRate}%</span>
-                        {isMentor && (
-                          <input
-                            type="number"
-                            value={r.studyRate}
-                            onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'studyPlan', r.id), { studyRate: Number(e.target.value) })}
-                            className="w-16 px-2 py-1 border rounded text-sm"
-                          />
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {isMentor ? (
-                        <select
-                          value={r.status}
-                          onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'studyPlan', r.id), { status: e.target.value })}
-                          className="flex-1 border rounded px-2 py-1 text-sm"
-                        >
-                          <option value="Done Both">Done Both</option>
-                          <option value="Done One Course">Done One Course</option>
-                          <option value="In Progress">In Progress</option>
-                          <option value="Ignored">Ignored</option>
-                        </select>
-                      ) : (
-                        <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-                          r.status === 'Done Both' ? 'bg-green-100 text-green-700' :
-                          r.status === 'Done One Course' ? 'bg-blue-100 text-blue-700' :
-                          r.status === 'In Progress' ? 'bg-yellow-100 text-yellow-700' :
-                          'bg-gray-100 text-gray-600'
-                        }`}>{r.status}</span>
-                      )}
-                      {isMentor && (
-                        <button
-                          onClick={async () => {
-                            await deleteDoc(doc(db, 'tutors', tutorId, 'studyPlan', r.id));
-                          }}
-                          className="text-red-300 hover:text-red-500"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      )}
-                    </div>
-                    {isMentor ? (
-                      <textarea
-                        value={r.notes || ''}
-                        onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'studyPlan', r.id), { notes: e.target.value })}
-                        placeholder="Optional notes..."
-                        className="w-full border rounded px-3 py-2 text-sm h-16"
-                      />
-                    ) : r.notes ? (
-                      <p className="text-sm text-gray-600 bg-gray-50 p-2 rounded">{r.notes}</p>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </Card>
-
-        {/* F) Total Performance */}
-        <Card title={t('totalPerformance')} icon={<TrendingUp size={20} />}>
-          <div className="space-y-4">
-            {/* Tab buttons */}
-            <div className="flex gap-2">
-              {['This Month', 'Last 3 Months', 'Last 6 Months'].map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setPerfTab(tab)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
-                    perfTab === tab
-                      ? 'bg-[#0047AB] text-white'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
-
-            {/* Flags row */}
-            <div className="grid grid-cols-3 gap-3">
-              <div className="p-3 bg-yellow-50 border border-yellow-100 rounded-xl text-center">
-                <p className="text-xs font-bold text-yellow-600 uppercase">Yellow</p>
-                <p className="text-xl font-bold text-yellow-700">{perfData.yellowFlags}</p>
-              </div>
-              <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-center">
-                <p className="text-xs font-bold text-red-600 uppercase">Red</p>
-                <p className="text-xl font-bold text-red-700">{perfData.redFlags}</p>
-              </div>
-              <div className="p-3 bg-orange-50 border border-orange-100 rounded-xl text-center">
-                <p className="text-xs font-bold text-orange-600 uppercase">Repeated</p>
-                <p className="text-xl font-bold text-orange-700">{perfData.repeatedFlags}</p>
-              </div>
-            </div>
-
-            {/* Rates row */}
-            <div className="grid grid-cols-3 gap-3">
-              <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl text-center">
-                <p className="text-xs font-bold text-blue-600 uppercase">Quality</p>
-                <p className="text-xl font-bold text-blue-700">{perfData.avgQualityRate}%</p>
-              </div>
-              <div className="p-3 bg-purple-50 border border-purple-100 rounded-xl text-center">
-                <p className="text-xs font-bold text-purple-600 uppercase">Work</p>
-                <p className="text-xl font-bold text-purple-700">{perfData.avgWorkRate}%</p>
-              </div>
-              <div className="p-3 bg-green-50 border border-green-100 rounded-xl text-center">
-                <p className="text-xs font-bold text-green-600 uppercase">Study</p>
-                <p className="text-xl font-bold text-green-700">{perfData.avgStudyRate}%</p>
-              </div>
-            </div>
-
-            {/* SVG Ring Chart */}
-            {perfData.studyPlanBreakdown.length > 0 && (
-              <div className="flex items-center justify-center pt-2">
-                <svg viewBox="0 0 200 120" className="w-full max-w-xs">
-                  {(() => {
-                    const total = perfData.studyPlanBreakdown.reduce((s, d) => s + d.count, 0);
-                    if (total === 0) return null;
-                    const cx = 100, cy = 60, r = 50, strokeWidth = 20;
-                    let startAngle = -90;
-                    const colors: Record<string, string> = {
-                      'Done Both': '#16a34a',
-                      'Done One Course': '#2563eb',
-                      'In Progress': '#eab308',
-                      'Ignored': '#9ca3af'
-                    };
-                    return perfData.studyPlanBreakdown.map((segment) => {
-                      const pct = segment.count / total;
-                      const angle = pct * 360;
-                      const endAngle = startAngle + angle;
-                      const toRad = (a: number) => (a * Math.PI) / 180;
-                      const x1 = cx + r * Math.cos(toRad(startAngle));
-                      const y1 = cy + r * Math.sin(toRad(startAngle));
-                      const x2 = cx + r * Math.cos(toRad(endAngle));
-                      const y2 = cy + r * Math.sin(toRad(endAngle));
-                      const large = angle > 180 ? 1 : 0;
-                      const d = `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`;
-                      const labelAngle = startAngle + angle / 2;
-                      const labelR = r + strokeWidth / 2 + 12;
-                      const lx = cx + labelR * Math.cos(toRad(labelAngle));
-                      const ly = cy + labelR * Math.sin(toRad(labelAngle));
-                      const lineX = cx + (r - strokeWidth / 2) * Math.cos(toRad(labelAngle));
-                      const lineY = cy + (r - strokeWidth / 2) * Math.sin(toRad(labelAngle));
-                      const result = (
-                        <g key={segment.status}>
-                          <path
-                            d={d}
-                            fill="none"
-                            stroke={colors[segment.status] || '#ccc'}
-                            strokeWidth={strokeWidth}
-                            strokeLinecap="round"
-                          />
-                          <line x1={lineX} y1={lineY} x2={lx} y2={ly} stroke="#9ca3af" strokeWidth="1" />
-                          <text x={lx} y={ly + 4} textAnchor="middle" fontSize="9" fill="#374151" fontWeight="bold">
-                            {Math.round(pct * 100)}%
-                          </text>
-                        </g>
-                      );
-                      startAngle = endAngle;
-                      return result;
-                    });
-                  })()}
-                </svg>
-              </div>
-            )}
-            {perfData.studyPlanBreakdown.length === 0 && (
-              <p className="text-center text-sm text-gray-400 italic py-4">No study plan data for this period</p>
-            )}
-
-            {/* Legend */}
-            {perfData.studyPlanBreakdown.length > 0 && (
-              <div className="flex flex-wrap gap-3 justify-center pt-1">
-                {perfData.studyPlanBreakdown.map((s) => {
-                  const colors: Record<string, string> = {
-                    'Done Both': '#16a34a',
-                    'Done One Course': '#2563eb',
-                    'In Progress': '#eab308',
-                    'Ignored': '#9ca3af'
-                  };
-                  return (
-                    <div key={s.status} className="flex items-center gap-1.5">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: colors[s.status] || '#ccc' }} />
-                      <span className="text-xs text-gray-600 font-medium">{s.status}</span>
-                    </div>
-                  );
-                })}
-              </div>
             )}
           </div>
         </Card>
