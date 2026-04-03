@@ -2037,204 +2037,327 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   });
 
   // ============================================================
-  // GVIZ PARSE HELPERS — Server-side query, targeted columns,
-  // batch writes, TRIM-safe string matching
+  // ERROR & LOGGING HELPERS
+  // ============================================================
+
+  /** Categorize and log an error, return a user-friendly message */
+  type ErrorKind = 'URL' | 'NETWORK' | 'PERMISSION' | 'NOT_FOUND' | 'EMPTY' | 'FIRESTORE' | 'UNKNOWN';
+  const parseError = (err: unknown, context: string): { kind: ErrorKind; message: string } => {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[${context}] Error:`, msg);
+
+    // URL / GID issues
+    if (msg.includes('Invalid spreadsheet URL') || msg.includes('null')) {
+      return { kind: 'URL', message: `خطأ: رابط Sheet غير صالح أو مفقود. تأكد من صحة الرابط.` };
+    }
+    // Network / CORS
+    if (msg.includes('fetch') || msg.includes('network') || msg.includes('TypeError')) {
+      return { kind: 'NETWORK', message: `خطأ شبكة: لا يمكن الوصول إلى Google Sheet. تأكد من اتصالك بالإنترنت.` };
+    }
+    // Sheet is private or access denied
+    if (msg.toLowerCase().includes('access') || msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('private')) {
+      return { kind: 'PERMISSION', message: `خطأ: Sheet خاص (Private). يرجى جعل Sheet متاحًا لـ "Anyone with the link".` };
+    }
+    // GViz query error (e.g. column doesn't exist)
+    if (msg.includes('GViz') || msg.includes('query') || msg.includes('INVALID')) {
+      return { kind: 'PERMISSION', message: `خطأ: Google Sheet لا يدعم الاستعلام. تأكد أن Sheet عام.` };
+    }
+    // NOT_FOUND — ID not in sheet
+    if (context === 'STUDY' && msg.includes('not found')) {
+      return { kind: 'NOT_FOUND', message: msg };
+    }
+    return { kind: 'UNKNOWN', message: `خطأ غير معروف: ${msg}` };
+  };
+
+  /** Show alert only when not in auto-sync mode (savedUrl present = manual trigger) */
+  const showAlert = (message: string, isManual: boolean) => {
+    if (isManual) alert(message);
+    else console.log(`[AutoSync] ${message}`);
+  };
+
+  // ============================================================
+  // GVIZ PARSE HELPERS — with detailed logging
   //
   // STUDY SHEET:  Column A (idx 0) = ID, data cols from D (idx 3) onward
   // FLAGS SHEET:  Column C (idx 2) = Tutor ID, explicit col selection
   // ============================================================
 
   // --- Study Sheet GViz Parser ---
-  // 1. Fetch all rows WHERE TRIM(A) = tutorId (headers=0 keeps header row in results)
-  // 2. Iterate cols from D onward; header = course name, cell value must be
-  //    exactly "Done & Published" to be synced
   const gvizStudyParser = (
     sheetUrl: string,
-    tutorId: string
+    tutorId: string,
+    isManual: boolean
   ): Promise<{ courses: any[]; rawRow: Record<string, string> }> => {
     return new Promise((resolve, reject) => {
+      // ── 1. URL & GID Validation ──
+      console.log(`[StudySync] ▶ Starting sync for Tutor Special ID: ${tutorId}`);
+      showAlert(`[StudySync] جاري البحث عن ID: ${tutorId}`, isManual);
+
       const spreadId = sheetUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)?.[1];
-      if (!spreadId) { reject(new Error('Invalid spreadsheet URL')); return; }
+      if (!spreadId) {
+        const err = new Error('Invalid spreadsheet URL — spreadsheet ID not found');
+        const { kind, message } = parseError(err, 'STUDY');
+        showAlert(`❌ خطأ: رابط Sheet غير صالح. \n${message}`, isManual);
+        reject(err);
+        return;
+      }
 
       const gidMatch = sheetUrl.match(/gid=([0-9]+)/);
-      const gidParam = gidMatch ? `&gid=${gidMatch[1]}` : '';
+      if (!gidMatch) {
+        const err = new Error('GID not found in URL');
+        showAlert(`❌ خطأ: رابط Sheet لا يحتوي على GID. تأكد من نسخ الرابط من الـ tab الصحيح.`, isManual);
+        reject(err);
+        return;
+      }
 
-      // headers=0 keeps header row in results; filter server-side by Column A (idx 0)
+      const gidParam = `&gid=${gidMatch[1]}`;
+      console.log(`[StudySync] 📋 Spreadsheet ID: ${spreadId} | GID: ${gidMatch[1]}`);
+
+      // headers=0 keeps header row as row 0, data as row 1
       const query = encodeURIComponent(`SELECT * WHERE TRIM(A) = '${tutorId.trim()}'`);
       const gvizUrl = `https://docs.google.com/spreadsheets/d/${spreadId}/gviz/tq?tqx=out:json${gidParam}&headers=0&tq=${query}`;
+      console.log(`[StudySync] 🔗 GViz URL: ${gvizUrl}`);
 
+      // ── 2. Fetch ──
       fetch(gvizUrl)
-        .then(res => res.text())
+        .then(res => {
+          console.log(`[StudySync] 🌐 Fetch status: ${res.status} ${res.statusText}`);
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+          }
+          return res.text();
+        })
         .then(text => {
-          const jsonStr = text.replace(/^[^(]+\(/, '').replace(/\);?\s*$/, '');
-          const response = JSON.parse(jsonStr);
+          // ── 3. Parse GViz Response ──
+          let response: any;
+          try {
+            const jsonStr = text.replace(/^[^(]+\(/, '').replace(/\);?\s*$/, '');
+            response = JSON.parse(jsonStr);
+            console.log(`[StudySync] 📦 GViz response status: ${response.status}`);
+          } catch (parseErr) {
+            throw new Error(`Failed to parse GViz response: ${parseErr}`);
+          }
 
           if (response.status === 'error') {
-            reject(new Error(response.errors?.[0]?.detailed_message || 'GViz query error'));
-            return;
+            const errMsg = response.errors?.[0]?.detailed_message || response.errors?.[0]?.reason || 'GViz query error';
+            console.error(`[StudySync] ❌ GViz error:`, response.errors);
+            throw new Error(`GViz: ${errMsg}`);
           }
 
           const table = response.table;
-          if (!table || !table.rows || table.rows.length === 0) {
+          if (!table) {
+            throw new Error('GViz returned no table structure');
+          }
+          if (!table.rows || table.rows.length < 2) {
+            // headers=0 means row 0 = headers, row 1 = first data row
+            console.log(`[StudySync] ⚠️ Sheet returned ${table.rows?.length ?? 0} rows — ID not found`);
+            showAlert(`لم يتم العثور على ID "${tutorId}" في العمود A من Sheet الدراسة.`, isManual);
             resolve({ courses: [], rawRow: {} });
             return;
           }
 
-          // Row 0 = header row (because headers=0), Row 1+ = data
+          // ── 4. Column Mapping + Course Extraction ──
           const headerRow = table.rows[0];
           const dataRow = table.rows[1];
-          if (!headerRow || !dataRow) {
-            resolve({ courses: [], rawRow: {} });
-            return;
-          }
+          console.log(`[StudySync] ✅ Matched row for ID: ${tutorId}`);
+          console.log(`[StudySync] 📊 Total columns found: ${headerRow.c.length}`);
 
           const rawRow: Record<string, string> = {};
           const newCourses: any[] = [];
 
-          // Iterate every column
           headerRow.c.forEach((cell: any, colIdx: number) => {
             const headerName = String(cell?.v ?? '').trim();
             const cellValue = String(dataRow.c[colIdx]?.v ?? '').trim();
-
             rawRow[headerName] = cellValue;
 
-            // Start from Column D (index 3) — skip A, B, C
+            // Skip A, B, C
             if (colIdx < 3) return;
-
-            // Exactly "Done & Published" — anything else is ignored
             if (cellValue !== 'Done & Published') return;
 
-            // Extract course name from header
             const cleanHeader = headerName.replace(/\n/g, ' ').trim();
             if (cleanHeader.toLowerCase() === 'free') {
               newCourses.push({ name: 'Free', grade: 'Done & Published' });
             } else {
-              // Extract module pattern (e.g. M1, M2, M3[Extra])
               const match = cleanHeader.match(/(M\d+[:\s\d-]*\[.*?\]|M\d+.*)/i);
-              newCourses.push({
-                name: match ? match[0] : cleanHeader,
-                grade: 'Done & Published'
-              });
+              newCourses.push({ name: match ? match[0] : cleanHeader, grade: 'Done & Published' });
             }
           });
 
+          console.log(`[StudySync] ✅ Extracted ${newCourses.length} courses for ID "${tutorId}":`, newCourses);
+          showAlert(`تم العثور على ${newCourses.length} كورس للمدرس ${tutorId}`, isManual);
           resolve({ courses: newCourses, rawRow });
         })
-        .catch(reject);
+        .catch(err => {
+          const { kind, message } = parseError(err, 'STUDY');
+          showAlert(`❌ فشل Sync الدراسة: ${message}`, isManual);
+          reject(err);
+        });
     });
   };
 
   // --- Flags Sheet GViz Parser ---
-  // Select: C=ID, E=Session Date, F=Time Slot, G=Group ID, I=Flag Type, J=Flag Comment
-  // Filter: TRIM(C) = tutorSpecialId
-  // Sort: Descending by Session Date (Column E)
   const gvizFlagsParser = (
     rawUrl: string,
-    searchId: string
+    searchId: string,
+    isManual: boolean
   ): Promise<any[]> => {
     return new Promise((resolve, reject) => {
+      // ── 1. URL & GID Validation ──
+      console.log(`[FlagsSync] ▶ Starting sync for Tutor Special ID: ${searchId}`);
+      showAlert(`[FlagsSync] جاري البحث عن ID: ${searchId}`, isManual);
+
       const spreadId = rawUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)?.[1];
-      if (!spreadId) { reject(new Error('Invalid spreadsheet URL')); return; }
+      if (!spreadId) {
+        const err = new Error('Invalid spreadsheet URL');
+        showAlert(`❌ خطأ: رابط Sheet غير صالح.`, isManual);
+        reject(err);
+        return;
+      }
 
       const gidMatch = rawUrl.match(/gid=([0-9]+)/);
-      const gidParam = gidMatch ? `&gid=${gidMatch[1]}` : '';
+      if (!gidMatch) {
+        showAlert(`❌ خطأ: رابط Sheet لا يحتوي على GID. تأكد من نسخ الرابط من الـ tab الصحيح.`, isManual);
+        reject(new Error('GID missing'));
+        return;
+      }
 
-      // Explicit column selection: C, E, F, G, I, J
+      const gidParam = `&gid=${gidMatch[1]}`;
+      console.log(`[FlagsSync] 📋 Spreadsheet ID: ${spreadId} | GID: ${gidMatch[1]}`);
+
+      // ── 2. Fetch ──
       const query = encodeURIComponent(
         `SELECT C, E, F, G, I, J WHERE TRIM(C) = '${searchId.trim()}' ORDER BY E DESC`
       );
       const gvizUrl = `https://docs.google.com/spreadsheets/d/${spreadId}/gviz/tq?tqx=out:json${gidParam}&headers=1&tq=${query}`;
+      console.log(`[FlagsSync] 🔗 GViz URL: ${gvizUrl}`);
 
       fetch(gvizUrl)
-        .then(res => res.text())
+        .then(res => {
+          console.log(`[FlagsSync] 🌐 Fetch status: ${res.status} ${res.statusText}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.text();
+        })
         .then(text => {
-          const jsonStr = text.replace(/^[^(]+\(/, '').replace(/\);?\s*$/, '');
-          const response = JSON.parse(jsonStr);
+          // ── 3. Parse GViz Response ──
+          let response: any;
+          try {
+            const jsonStr = text.replace(/^[^(]+\(/, '').replace(/\);?\s*$/, '');
+            response = JSON.parse(jsonStr);
+            console.log(`[FlagsSync] 📦 GViz status: ${response.status}`);
+          } catch (parseErr) {
+            throw new Error(`Failed to parse GViz response`);
+          }
 
           if (response.status === 'error') {
-            reject(new Error(response.errors?.[0]?.detailed_message || 'GViz query error'));
-            return;
+            const errMsg = response.errors?.[0]?.detailed_message || 'GViz query error';
+            console.error(`[FlagsSync] ❌ GViz error:`, response.errors);
+            throw new Error(`GViz: ${errMsg}`);
           }
 
           const table = response.table;
           if (!table || !table.rows || table.rows.length === 0) {
+            console.log(`[FlagsSync] ⚠️ 0 rows returned for ID "${searchId}" in Column C`);
+            showAlert(`لم يتم العثور على فلاجز للمدرس "${searchId}" في العمود C من Sheet الفلاجز.`, isManual);
             resolve([]);
             return;
           }
 
-          // GViz returns: cols = [C, E, F, G, I, J]; rows = matched data
-          // col idx:  0=C(ID), 1=E(Session Date), 2=F(Time Slot),
-          //          3=G(Group ID), 4=I(Flag Type), 5=J(Flag Comment)
-          const newFlags = table.rows.map((row: any) => {
-            const rawDateStr = row.c[1]?.v ?? '';
-            const sessionDate = String(rawDateStr).trim();
+          // ── 4. Column Mapping ──
+          // cols returned: 0=C(ID), 1=E(Session Date), 2=F(Time Slot),
+          //                3=G(Group ID), 4=I(Flag Type), 5=J(Flag Comment)
+          console.log(`[FlagsSync] ✅ Found ${table.rows.length} flag row(s) for ID "${searchId}"`);
+
+          const newFlags = table.rows.map((row: any, rowIdx: number) => {
+            const sessionDate = String(row.c[1]?.v ?? '').trim();
             const timeSlot = String(row.c[2]?.v ?? '').trim();
             const groupId = String(row.c[3]?.v ?? '').trim();
-            const flagType = String(row.c[4]?.v ?? 'Yellow Flag').trim();
+            const flagTypeRaw = String(row.c[4]?.v ?? '').trim();
             const flagComment = String(row.c[5]?.v ?? '').trim();
 
+            // ── Column I validation ──
+            if (!flagTypeRaw) {
+              console.warn(`[FlagsSync] ⚠️ Row ${rowIdx}: Column I (Flag Type) is EMPTY`);
+            } else {
+              console.log(`[FlagsSync] Row ${rowIdx}: FlagType="${flagTypeRaw}"`);
+            }
+
             return {
-              // Combined date + time slot for display
               date: timeSlot ? `${sessionDate} - ${timeSlot}` : sessionDate,
-              // Raw date for sorting (desc is handled by ORDER BY E DESC in query,
-              // but we keep rawDate for potential re-sorts)
               rawDate: new Date(sessionDate).getTime() || 0,
-              // Flag type mapping
-              type: flagType.toLowerCase().includes('red') ? 'red' : 'yellow',
-              // Fixed status since column M is not in our selection
+              type: flagTypeRaw.toLowerCase().includes('red') ? 'red' : 'yellow',
               status: 'in progress',
-              // Group ID from Column G
               groupId,
-              // Flag comment from Column J
               reason: flagComment || '-',
-              studentId: groupId, // Group ID as student identifier
+              studentId: groupId,
               createdAt: new Date().toISOString(),
             };
           });
 
-          // Safety sort descending by rawDate (in case API ignores ORDER BY)
           newFlags.sort((a, b) => b.rawDate - a.rawDate);
-
+          console.log(`[FlagsSync] ✅ Extracted ${newFlags.length} flags for ID "${searchId}":`, newFlags);
+          showAlert(`تم العثور على ${newFlags.length} فلاج للمدرس ${searchId}`, isManual);
           resolve(newFlags);
         })
-        .catch(reject);
+        .catch(err => {
+          const { kind, message } = parseError(err, 'FLAGS');
+          showAlert(`❌ فشل Sync الفلاجز: ${message}`, isManual);
+          reject(err);
+        });
     });
   };
 
   // ============================================================
-  // ATOMIC BATCH SYNC — delete old + batch insert new
+  // ATOMIC BATCH SYNC — with DB operation logging
   // ============================================================
-  const batchSyncCourses = async (courses: any[]) => {
-    const batch = writeBatch(db);
-    const coursesRef = collection(db, 'tutors', tutorId, 'courses');
+  const batchSyncCourses = async (courses: any[], isManual: boolean) => {
+    try {
+      const batch = writeBatch(db);
+      const coursesRef = collection(db, 'tutors', tutorId, 'courses');
 
-    // Snapshot old docs to collect refs for deletion
-    const oldSnap = await getDocs(coursesRef);
-    oldSnap.docs.forEach(d => batch.delete(d.ref));
+      // Log delete phase
+      const oldSnap = await getDocs(coursesRef);
+      console.log(`[BatchCourses] Deleting ${oldSnap.size} old course doc(s)`);
+      oldSnap.docs.forEach(d => batch.delete(d.ref));
 
-    // Batch insert new courses
-    courses.forEach((course, i) => {
-      const newRef = doc(coursesRef); // each doc gets a unique ID
-      batch.set(newRef, { ...course, createdAt: new Date().toISOString() });
-    });
+      // Log insert phase
+      console.log(`[BatchCourses] Inserting ${courses.length} new course doc(s)`);
+      courses.forEach(course => {
+        const newRef = doc(coursesRef);
+        batch.set(newRef, { ...course, createdAt: new Date().toISOString() });
+      });
 
-    await batch.commit();
+      await batch.commit();
+      console.log(`[BatchCourses] ✅ Batch committed successfully`);
+    } catch (err) {
+      console.error(`[BatchCourses] ❌ Firestore error:`, err);
+      showAlert(`❌ فشل الكتابة في قاعدة البيانات (Courses): ${err instanceof Error ? err.message : err}`, isManual);
+      throw err; // re-throw so init() catches it
+    }
   };
 
-  const batchSyncFlags = async (flags: any[]) => {
-    const batch = writeBatch(db);
-    const flagsRef = collection(db, 'tutors', tutorId, 'flags');
+  const batchSyncFlags = async (flags: any[], isManual: boolean) => {
+    try {
+      const batch = writeBatch(db);
+      const flagsRef = collection(db, 'tutors', tutorId, 'flags');
 
-    const oldSnap = await getDocs(flagsRef);
-    oldSnap.docs.forEach(d => batch.delete(d.ref));
+      const oldSnap = await getDocs(flagsRef);
+      console.log(`[BatchFlags] Deleting ${oldSnap.size} old flag doc(s)`);
+      oldSnap.docs.forEach(d => batch.delete(d.ref));
 
-    flags.forEach(flag => {
-      const { rawDate, ...cleanFlag } = flag;
-      const newRef = doc(flagsRef);
-      batch.set(newRef, cleanFlag);
-    });
+      console.log(`[BatchFlags] Inserting ${flags.length} new flag doc(s)`);
+      flags.forEach(flag => {
+        const { rawDate, ...cleanFlag } = flag;
+        const newRef = doc(flagsRef);
+        batch.set(newRef, cleanFlag);
+      });
 
-    await batch.commit();
+      await batch.commit();
+      console.log(`[BatchFlags] ✅ Batch committed successfully`);
+    } catch (err) {
+      console.error(`[BatchFlags] ❌ Firestore error:`, err);
+      showAlert(`❌ فشل الكتابة في قاعدة البيانات (Flags): ${err instanceof Error ? err.message : err}`, isManual);
+      throw err;
+    }
   };
 
   // ============================================================
@@ -2276,27 +2399,31 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
             // A2. GViz server-side query + parse
             const { courses: newCourses } = await gvizStudyParser(
               tutorData.studySheetLink,
-              tutorData.id || tutorId
+              tutorData.id || tutorId,
+              false // isManual = false (auto-sync)
             );
             if (!isMounted) return;
 
             // A3. Batch insert new courses
             if (newCourses.length > 0) {
-              await batchSyncCourses(newCourses);
+              await batchSyncCourses(newCourses, false);
               const coursesWithIds = newCourses.map((c, i) => ({ ...c, id: `sheet-${i}` }));
               if (isMounted) setCourses(sortCourses(coursesWithIds));
             } else {
               if (isMounted) setCourses([]);
             }
           } catch (err) {
-            console.error('[SyncStudy] Failed:', err);
-            if (isMounted) setCourses([]); // keep wiped — no stale data
+            // Keep wiped state — show error details via parseError logging
+            console.error('[SyncStudy] ❌ Full error:', err);
+            const { kind, message } = parseError(err, 'STUDY');
+            console.error(`[SyncStudy] Error kind: ${kind} | Message: ${message}`);
+            if (isMounted) setCourses([]);
           } finally {
             if (isMounted) setSheetSyncing(prev => ({ ...prev, study: false }));
           }
         } else {
           // NO LINK: wipe all courses, show empty state
-          await batchSyncCourses([]);
+          await batchSyncCourses([], false);
           if (isMounted) setCourses([]);
         }
 
@@ -2316,26 +2443,29 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
             // B2. GViz server-side query + parse
             const newFlags = await gvizFlagsParser(
               tutorData.flagsSheetLink,
-              tutorData.tutorCustomId || tutorData.id || tutorId
+              tutorData.tutorCustomId || tutorData.id || tutorId,
+              false // isManual = false
             );
             if (!isMounted) return;
 
             // B3. Batch insert new flags
             if (newFlags.length > 0) {
-              await batchSyncFlags(newFlags);
+              await batchSyncFlags(newFlags, false);
               if (isMounted) setFlags(newFlags);
             } else {
               if (isMounted) setFlags([]);
             }
           } catch (err) {
-            console.error('[SyncFlags] Failed:', err);
-            if (isMounted) setFlags([]); // keep wiped — no stale data
+            console.error('[SyncFlags] ❌ Full error:', err);
+            const { kind, message } = parseError(err, 'FLAGS');
+            console.error(`[SyncFlags] Error kind: ${kind} | Message: ${message}`);
+            if (isMounted) setFlags([]);
           } finally {
             if (isMounted) setSheetSyncing(prev => ({ ...prev, flags: false }));
           }
         } else {
           // NO LINK: wipe all flags, show empty state
-          await batchSyncFlags([]);
+          await batchSyncFlags([], false);
           if (isMounted) setFlags([]);
         }
 
@@ -2522,29 +2652,27 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
 
     try {
       const tutorIdValue = details?.id || tutorId;
-      const { courses: newCourses } = await gvizStudyParser(SHEET_URL, tutorIdValue);
+      const { courses: newCourses } = await gvizStudyParser(SHEET_URL, tutorIdValue, true); // isManual=true
 
       if (newCourses.length === 0) {
-        if (!savedUrl) alert('ℹ️ لم يتم العثور على أي كورس بحالة Done');
+        // Alert already shown inside parser for this case
         if (savedUrl) setSheetSyncing(prev => ({ ...prev, study: false }));
         return;
       }
 
       // Batch write: wipe + insert
-      await batchSyncCourses(newCourses);
+      await batchSyncCourses(newCourses, true);
       const coursesWithIds = newCourses.map((c, i) => ({ ...c, id: `sheet-${i}` }));
       setCourses(sortCourses(coursesWithIds));
 
       // Save link back to tutor record
       await updateDoc(doc(db, 'tutors', tutorId), { studySheetLink: SHEET_URL });
 
-      if (!savedUrl) {
-        alert(`✅ تم تحديث (${newCourses.length}) كورس بنجاح.`);
-        window.location.reload();
-      }
+      alert(`✅ تم تحديث (${newCourses.length}) كورس بنجاح.`);
+      window.location.reload();
     } catch (err) {
-      console.error('[ManualSyncStudy] Failed:', err);
-      if (!savedUrl) alert('❌ فشل تحديث البيانات من الشيت.');
+      const { kind, message } = parseError(err, 'STUDY');
+      alert(`❌ فشل Sync الدراسة: ${message}`);
     } finally {
       if (savedUrl) setSheetSyncing(prev => ({ ...prev, study: false }));
     }
@@ -2558,25 +2686,25 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
 
     try {
       const searchId = String(details?.tutorCustomId || details?.id || tutorId).trim();
-      const newFlags = await gvizFlagsParser(rawUrl, searchId);
+      const newFlags = await gvizFlagsParser(rawUrl, searchId, true); // isManual=true
 
       if (newFlags.length === 0) {
-        if (!savedUrl) alert(`لم يتم العثور على فلاجز للمدرس: ${searchId}`);
+        // Alert already shown inside parser
         if (savedUrl) setSheetSyncing(prev => ({ ...prev, flags: false }));
         return;
       }
 
       // Batch write: wipe + insert
-      await batchSyncFlags(newFlags);
+      await batchSyncFlags(newFlags, true);
       setFlags(newFlags);
 
       // Save link back to tutor record
       await updateDoc(doc(db, 'tutors', tutorId), { flagsSheetLink: rawUrl });
 
-      if (!savedUrl) alert(`✅ لقيت ${newFlags.length} فلاج وتم التحديث.`);
+      alert(`✅ لقيت ${newFlags.length} فلاج وتم التحديث.`);
     } catch (err) {
-      console.error('[ManualSyncFlags] Failed:', err);
-      if (!savedUrl) alert('❌ فشل تحديث البيانات من الشيت.');
+      const { kind, message } = parseError(err, 'FLAGS');
+      alert(`❌ فشل Sync الفلاجز: ${message}`);
     } finally {
       if (savedUrl) setSheetSyncing(prev => ({ ...prev, flags: false }));
     }
