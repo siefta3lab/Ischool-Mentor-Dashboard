@@ -16,8 +16,7 @@ import {
   getDocFromServer,
   Timestamp,
   increment,
-  CollectionReference,
-  writeBatch 
+  CollectionReference 
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { initializeApp, getApp, getApps } from 'firebase/app';
@@ -2037,161 +2036,80 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   });
 
   // ============================================================
-  // GVIZ PARSE HELPERS — Server-side query, targeted columns,
-  // batch writes, TRIM-safe string matching
+  // PARSE HELPERS — Promise-based wrappers for Papa Parse
   // ============================================================
-
-  // --- Study Sheet GViz Parser ---
-  const gvizStudyParser = (
-    sheetUrl: string,
-    tutorId: string
-  ): Promise<{ courses: any[]; rawRow: Record<string, string> }> => {
+  const parseSheetCSV = (sheetUrl: string, tutorId: string): Promise<any[]> => {
     return new Promise((resolve, reject) => {
-      // Extract spreadsheet ID
-      const spreadId = sheetUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)?.[1];
-      if (!spreadId) { reject(new Error('Invalid spreadsheet URL')); return; }
-
-      // Extract GID — use tq gid param if present, otherwise first sheet
-      const gidMatch = sheetUrl.match(/gid=([0-9]+)/);
-      const gidParam = gidMatch ? `&gid=${gidMatch[1]}` : '';
-
-      // Server-side query: select all columns, filter by column C (index 2) = tutorId
-      // TRIM() handles accidental trailing/leading spaces in sheet cells
-      const query = encodeURIComponent(`SELECT * WHERE TRIM(C) = '${tutorId.trim()}'`);
-      const gvizUrl = `https://docs.google.com/spreadsheets/d/${spreadId}/gviz/tq?tqx=out:json${gidParam}&headers=1&tq=${query}`;
-
-      fetch(gvizUrl)
-        .then(res => res.text())
-        .then(text => {
-          // GViz returns: google.visualization.Query.setResponse({...})
-          const jsonStr = text.replace(/^[^(]+\(/, '').replace(/\);?\s*$/, '');
-          const response = JSON.parse(jsonStr);
-
-          if (response.status === 'error') {
-            reject(new Error(response.errors?.[0]?.detailed_message || 'GViz query error'));
-            return;
-          }
-
-          const table = response.table;
-          if (!table || !table.rows || table.rows.length === 0) {
-            resolve({ courses: [], rawRow: {} });
-            return;
-          }
-
-          const rawRow: Record<string, string> = {};
-          table.columns.forEach((col: string, i: number) => {
-            const cellVal = table.rows[0].c[i]?.v ?? '';
-            rawRow[col] = String(cellVal);
-          });
-
-          // Parse columns where value === "done & published" or "done"
-          const newCourses: any[] = [];
-          Object.keys(rawRow).forEach(col => {
-            const value = rawRow[col].trim().toLowerCase();
-            if (value === 'done & published' || value === 'done') {
-              const cleanColName = col.replace(/\n/g, ' ').trim();
-              if (cleanColName.toLowerCase() === 'free') {
-                newCourses.push({ name: 'Free', grade: 'Done' });
-              } else {
-                const match = cleanColName.match(/(M\d+[:\s\d-]*\[.*?\]|M\d+.*)/i);
-                newCourses.push({ name: match ? match[0] : cleanColName, grade: 'Done' });
+      Papa.parse(sheetUrl, {
+        download: true,
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          try {
+            const rows = results.data as any[];
+            const currentTutorId = String(tutorId).trim();
+            const currentRow = rows.find(r => String(r.ID || r.id).trim() === currentTutorId);
+            if (!currentRow) { resolve([]); return; }
+            const newCourses: any[] = [];
+            Object.keys(currentRow).forEach(col => {
+              const value = String(currentRow[col]).trim().toLowerCase();
+              if (value === "done & published" || value === "done") {
+                const cleanColName = col.replace(/\n/g, ' ').trim();
+                if (cleanColName.toLowerCase() === 'free') {
+                  newCourses.push({ name: "Free", grade: "Done" });
+                } else {
+                  const match = cleanColName.match(/(M\d+[:\s\d-]*\[.*?\]|M\d+.*)/i);
+                  newCourses.push({ name: match ? match[0] : cleanColName, grade: "Done" });
+                }
               }
-            }
-          });
-
-          resolve({ courses: newCourses, rawRow });
-        })
-        .catch(reject);
+            });
+            resolve(newCourses);
+          } catch (err) { reject(err); }
+        },
+        error: (err) => reject(err)
+      });
     });
   };
 
-  // --- Flags Sheet GViz Parser ---
-  const gvizFlagsParser = (
-    rawUrl: string,
-    searchId: string
-  ): Promise<any[]> => {
+  const parseFlagsCSV = (rawUrl: string, searchId: string): Promise<any[]> => {
     return new Promise((resolve, reject) => {
-      const spreadId = rawUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)?.[1];
-      if (!spreadId) { reject(new Error('Invalid spreadsheet URL')); return; }
-
       const gidMatch = rawUrl.match(/gid=([0-9]+)/);
       const gidParam = gidMatch ? `&gid=${gidMatch[1]}` : '';
-
-      // Column indices for flags: C=ID(2), D=date1(3), E=date2(4), G=studentId(6),
-      // I=flagType(8), J=reason(9), M=status(12)
-      const query = encodeURIComponent(
-        `SELECT C, D, E, G, I, J, M WHERE TRIM(C) = '${searchId.trim()}'`
-      );
-      const gvizUrl = `https://docs.google.com/spreadsheets/d/${spreadId}/gviz/tq?tqx=out:json${gidParam}&headers=1&tq=${query}`;
-
-      fetch(gvizUrl)
-        .then(res => res.text())
-        .then(text => {
-          const jsonStr = text.replace(/^[^(]+\(/, '').replace(/\);?\s*$/, '');
-          const response = JSON.parse(jsonStr);
-
-          if (response.status === 'error') {
-            reject(new Error(response.errors?.[0]?.detailed_message || 'GViz query error'));
-            return;
-          }
-
-          const table = response.table;
-          if (!table || !table.rows || table.rows.length === 0) {
-            resolve([]);
-            return;
-          }
-
-          const newFlags = table.rows.map((row: any, i: number) => ({
-            date: `${row.c[3]?.v ?? ''} - ${row.c[4]?.v ?? ''}`,
-            type: String(row.c[8]?.v ?? 'Yellow Flag').trim(),
-            status: String(row.c[12]?.v ?? 'Working on').trim(),
-            reason: row.c[9]?.v ?? '-',
-            studentId: row.c[6]?.v ?? 'N/A',
-            createdAt: new Date().toISOString(),
-            rawDate: new Date(row.c[3]?.v ?? 0).getTime()
-          }));
-
-          newFlags.sort((a, b) => b.rawDate - a.rawDate);
-          resolve(newFlags);
-        })
-        .catch(reject);
+      const SHEET_URL = rawUrl.replace(/\/edit.*$/, `/export?format=csv${gidParam}`);
+      Papa.parse(SHEET_URL, {
+        download: true,
+        header: false,
+        skipEmptyLines: true,
+        complete: (results) => {
+          try {
+            const rows = results.data as any[];
+            const tutorRows = rows.filter(row => String(row[2] || '').trim() === searchId);
+            if (tutorRows.length === 0) { resolve([]); return; }
+            const newFlags = tutorRows.map(row => ({
+              date: `${row[4] || ''} - ${row[5] || ''}`,
+              type: String(row[8] || 'Yellow Flag').trim(),
+              status: String(row[12] || 'Working on').trim(),
+              reason: row[9] || '-',
+              studentId: row[6] || 'N/A',
+              createdAt: new Date().toISOString(),
+              rawDate: new Date(row[4] || 0).getTime()
+            }));
+            newFlags.sort((a, b) => b.rawDate - a.rawDate);
+            resolve(newFlags);
+          } catch (err) { reject(err); }
+        },
+        error: (err) => reject(err)
+      });
     });
   };
 
   // ============================================================
-  // ATOMIC BATCH SYNC — delete old + batch insert new
+  // HELPER: Delete all documents in a collection
   // ============================================================
-  const batchSyncCourses = async (courses: any[]) => {
-    const batch = writeBatch(db);
-    const coursesRef = collection(db, 'tutors', tutorId, 'courses');
-
-    // Snapshot old docs to collect refs for deletion
-    const oldSnap = await getDocs(coursesRef);
-    oldSnap.docs.forEach(d => batch.delete(d.ref));
-
-    // Batch insert new courses
-    courses.forEach((course, i) => {
-      const newRef = doc(coursesRef); // each doc gets a unique ID
-      batch.set(newRef, { ...course, createdAt: new Date().toISOString() });
-    });
-
-    await batch.commit();
-  };
-
-  const batchSyncFlags = async (flags: any[]) => {
-    const batch = writeBatch(db);
-    const flagsRef = collection(db, 'tutors', tutorId, 'flags');
-
-    const oldSnap = await getDocs(flagsRef);
-    oldSnap.docs.forEach(d => batch.delete(d.ref));
-
-    flags.forEach(flag => {
-      const { rawDate, ...cleanFlag } = flag;
-      const newRef = doc(flagsRef);
-      batch.set(newRef, cleanFlag);
-    });
-
-    await batch.commit();
+  const deleteDocChildren = async (collRef: CollectionReference) => {
+    const snaps = await getDocs(collRef);
+    if (snaps.empty) return;
+    await Promise.all(snaps.docs.map(d => deleteDoc(d.ref)));
   };
 
   // ============================================================
@@ -2218,81 +2136,80 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
         setEditData(tutorData);
 
         // ============================================================
-        // STEP A: Total Study (courses) — WIPE → GViz Query → Batch Insert
+        // STEP A: Total Study (courses) — Delete → Sync → Populate
         // ============================================================
         if (tutorData.studySheetLink) {
           setSheetSyncing(prev => ({ ...prev, study: true }));
+
           try {
-            // A1. WIPE old data first (delete before any insert)
+            // A1. WIPE existing courses from Firestore FIRST
             const coursesRef = collection(db, 'tutors', tutorId, 'courses');
             const oldCourses = await getDocs(coursesRef);
-            const wipeBatch = writeBatch(db);
-            oldCourses.docs.forEach(d => wipeBatch.delete(d.ref));
-            await wipeBatch.commit();
+            await Promise.all(oldCourses.docs.map(d => deleteDoc(d.ref)));
 
-            // A2. GViz server-side query + parse
-            const { courses: newCourses } = await gvizStudyParser(
-              tutorData.studySheetLink,
-              tutorData.id || tutorId
-            );
+            // A2. SYNC from sheet
+            const parsed = await parseSheetCSV(tutorData.studySheetLink, tutorData.id || tutorId);
             if (!isMounted) return;
 
-            // A3. Batch insert new courses
-            if (newCourses.length > 0) {
-              await batchSyncCourses(newCourses);
-              const coursesWithIds = newCourses.map((c, i) => ({ ...c, id: `sheet-${i}` }));
-              if (isMounted) setCourses(sortCourses(coursesWithIds));
+            if (parsed.length > 0) {
+              // A3. POPULATE with fresh data
+              const newCourses = parsed.map((c, i) => ({ ...c, id: `sheet-${i}` }));
+              const freshRef = collection(db, 'tutors', tutorId, 'courses');
+              await Promise.all(newCourses.map(c => addDoc(freshRef, { ...c, createdAt: new Date().toISOString() })));
+              if (isMounted) setCourses(sortCourses(newCourses));
             } else {
               if (isMounted) setCourses([]);
             }
           } catch (err) {
-            console.error('[SyncStudy] Failed:', err);
-            if (isMounted) setCourses([]); // keep wiped — no stale data
+            console.error("[SyncStudy] Failed:", err);
+            // CRITICAL: If sync fails, old data stays deleted — UI will show empty
+            if (isMounted) setCourses([]);
           } finally {
             if (isMounted) setSheetSyncing(prev => ({ ...prev, study: false }));
           }
         } else {
-          // NO LINK: wipe all courses, show empty state
-          await batchSyncCourses([]);
+          // NO LINK: Wipe all courses, show empty
+          await deleteDocChildren(collection(db, 'tutors', tutorId, 'courses'));
           if (isMounted) setCourses([]);
         }
 
         // ============================================================
-        // STEP B: Flags — WIPE → GViz Query → Batch Insert
+        // STEP B: Flags — Delete → Sync → Populate
         // ============================================================
         if (tutorData.flagsSheetLink) {
           setSheetSyncing(prev => ({ ...prev, flags: true }));
+
           try {
-            // B1. WIPE old data first
+            // B1. WIPE existing flags from Firestore FIRST
             const flagsRef = collection(db, 'tutors', tutorId, 'flags');
             const oldFlags = await getDocs(flagsRef);
-            const wipeBatch = writeBatch(db);
-            oldFlags.docs.forEach(d => wipeBatch.delete(d.ref));
-            await wipeBatch.commit();
+            await Promise.all(oldFlags.docs.map(d => deleteDoc(d.ref)));
 
-            // B2. GViz server-side query + parse
-            const newFlags = await gvizFlagsParser(
-              tutorData.flagsSheetLink,
-              tutorData.tutorCustomId || tutorData.id || tutorId
-            );
+            // B2. SYNC from sheet
+            const parsed = await parseFlagsCSV(tutorData.flagsSheetLink, tutorData.tutorCustomId || tutorData.id || tutorId);
             if (!isMounted) return;
 
-            // B3. Batch insert new flags
-            if (newFlags.length > 0) {
-              await batchSyncFlags(newFlags);
-              if (isMounted) setFlags(newFlags);
+            if (parsed.length > 0) {
+              // B3. POPULATE with fresh data
+              const freshRef = collection(db, 'tutors', tutorId, 'flags');
+              for (const flag of parsed) {
+                const { rawDate, ...flagClean } = flag;
+                await addDoc(freshRef, { ...flagClean });
+              }
+              if (isMounted) setFlags(parsed);
             } else {
               if (isMounted) setFlags([]);
             }
           } catch (err) {
-            console.error('[SyncFlags] Failed:', err);
-            if (isMounted) setFlags([]); // keep wiped — no stale data
+            console.error("[SyncFlags] Failed:", err);
+            // CRITICAL: If sync fails, old data stays deleted — UI will show empty
+            if (isMounted) setFlags([]);
           } finally {
             if (isMounted) setSheetSyncing(prev => ({ ...prev, flags: false }));
           }
         } else {
-          // NO LINK: wipe all flags, show empty state
-          await batchSyncFlags([]);
+          // NO LINK: Wipe all flags, show empty
+          await deleteDocChildren(collection(db, 'tutors', tutorId, 'flags'));
           if (isMounted) setFlags([]);
         }
 
@@ -2449,95 +2366,205 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
     };
 
   // ============================================================
-  // COURSE SORTER
-  // ============================================================
-  const sortCourses = (data: any[]) => {
-    return [...data].sort((a, b) => {
-      const nameA = (a.name || '').toLowerCase();
-      const nameB = (b.name || '').toLowerCase();
-      if (nameA.includes('free')) return -1;
-      if (nameB.includes('free')) return 1;
-      const matchA = nameA.match(/m(\d+)/);
-      const matchB = nameB.match(/m(\d+)/);
-      if (matchA && matchB) return parseInt(matchA[1]) - parseInt(matchB[1]);
-      return nameA.localeCompare(nameB);
-    });
-  };
-
-  // ============================================================
-  // MANUAL SYNC (for the "Sync from Sheets" / "Sync Flags" buttons)
-  // Uses GViz server-side query for speed + batch Firestore writes
+  // MANUAL SYNC (for the "Sync from Sheets" button)
   // ============================================================
   const syncStudyFromSheets = async (savedUrl?: string) => {
-    const SHEET_URL = savedUrl || window.prompt("أدخل رابط Google Sheet للدراسة:");
+    // 1. لو فيه لينك محفوظ استخدمه، لو مفيش اطلب لينك جديد
+    const SHEET_URL = savedUrl || window.prompt("من فضلك أدخل رابط الـ CSV (Publish to Web):");
+
     if (!SHEET_URL || !SHEET_URL.includes('google.com')) {
-      if (!savedUrl) alert('❌ خطأ: الرابط غير صحيح.');
-      return;
+        if (!savedUrl) alert("❌ خطأ: الرابط غير صحيح.");
+        return;
     }
 
     if (savedUrl) setSheetSyncing(prev => ({ ...prev, study: true }));
 
-    try {
-      const tutorIdValue = details?.id || tutorId;
-      const { courses: newCourses } = await gvizStudyParser(SHEET_URL, tutorIdValue);
+    Papa.parse(SHEET_URL, {
+        download: true,
+        header: true,
+        skipEmptyLines: true,
+        complete: async (results) => {
+            const rows = results.data as any[];
+            const currentTutorId = String(details?.id || tutorId).trim();
 
-      if (newCourses.length === 0) {
-        if (!savedUrl) alert('ℹ️ لم يتم العثور على أي كورس بحالة Done');
-        if (savedUrl) setSheetSyncing(prev => ({ ...prev, study: false }));
-        return;
+            // 2. البحث عن الصف
+            const currentRow = rows.find(r => String(r.ID || r.id).trim() === currentTutorId);
+
+            if (!currentRow) {
+                if (!savedUrl) alert(`❌ لم يتم العثور على المدرس رقم (${currentTutorId}) في الشيت.`);
+                if (savedUrl) setSheetSyncing(prev => ({ ...prev, study: false }));
+                return;
+            }
+
+            const newCourses: any[] = [];
+
+            // 3. فحص كل الأعمدة
+            Object.keys(currentRow).forEach(col => {
+                const value = String(currentRow[col]).trim().toLowerCase();
+
+                if (value === "done & published" || value === "done") {
+                    const cleanColName = col.replace(/\n/g, ' ').trim();
+
+                    if (cleanColName.toLowerCase() === 'free') {
+                        newCourses.push({ name: "Free", grade: "Done" });
+                    }
+                    else {
+                        const match = cleanColName.match(/(M\d+[:\s\d-]*\[.*?\]|M\d+.*)/i);
+                        newCourses.push({
+                            name: match ? match[0] : cleanColName,
+                            grade: "Done"
+                        });
+                    }
+                }
+            });
+
+            if (newCourses.length === 0) {
+                if (!savedUrl) alert("ℹ️ تم العثور على المدرس، لكن لا يوجد أي كورس بحالة 'Done'");
+                if (savedUrl) setSheetSyncing(prev => ({ ...prev, study: false }));
+                return;
+            }
+
+            // 4. تحديث الـ UI مباشرة (بدون ما ننتظر Firestore)
+            const coursesData = newCourses.map((c, i) => ({ ...c, id: `sheet-${i}` }));
+            setCourses(sortCourses(coursesData));
+
+            // 5. التحديث في Firestore (في الخلفية)
+            try {
+                // حفظ اللينك في بيانات المدرس الأساسية
+                const tutorRef = doc(db, 'tutors', tutorId);
+                await updateDoc(tutorRef, {
+                    studySheetLink: SHEET_URL
+                });
+
+                const coursesRef = collection(db, 'tutors', tutorId, 'courses');
+                const oldDocs = await getDocs(coursesRef);
+                await Promise.all(oldDocs.docs.map(doc => deleteDoc(doc.ref)));
+
+                await Promise.all(newCourses.map(course => addDoc(coursesRef, {
+                    ...course,
+                    createdAt: new Date().toISOString()
+                })));
+
+                // التنبيه والريفريش فقط في حالة الضغط اليدوي
+                if (!savedUrl) {
+                    alert(`✅ مبروك! تم تحديث (${newCourses.length}) كورس بنجاح.`);
+                    window.location.reload();
+                }
+            } catch (err) {
+                console.error(err);
+                if (!savedUrl) alert("❌ فشل تحديث البيانات في Firestore");
+            } finally {
+                if (savedUrl) setSheetSyncing(prev => ({ ...prev, study: false }));
+            }
+        }
+    });
+};
+
+  const sortCourses = (data: any[]) => {
+    return [...data].sort((a, b) => {
+      const nameA = (a.name || "").toLowerCase();
+      const nameB = (b.name || "").toLowerCase();
+
+      // 1. الـ Free دايماً الأول
+      if (nameA.includes("free")) return -1;
+      if (nameB.includes("free")) return 1;
+
+      // 2. الترتيب بالأرقام (M1, M2, M3...)
+      const matchA = nameA.match(/m(\d+)/);
+      const matchB = nameB.match(/m(\d+)/);
+
+      if (matchA && matchB) {
+        return parseInt(matchA[1]) - parseInt(matchB[1]);
       }
 
-      // Batch write: wipe + insert
-      await batchSyncCourses(newCourses);
-      const coursesWithIds = newCourses.map((c, i) => ({ ...c, id: `sheet-${i}` }));
-      setCourses(sortCourses(coursesWithIds));
-
-      // Save link back to tutor record
-      await updateDoc(doc(db, 'tutors', tutorId), { studySheetLink: SHEET_URL });
-
-      if (!savedUrl) {
-        alert(`✅ تم تحديث (${newCourses.length}) كورس بنجاح.`);
-        window.location.reload();
-      }
-    } catch (err) {
-      console.error('[ManualSyncStudy] Failed:', err);
-      if (!savedUrl) alert('❌ فشل تحديث البيانات من الشيت.');
-    } finally {
-      if (savedUrl) setSheetSyncing(prev => ({ ...prev, study: false }));
-    }
+      return nameA.localeCompare(nameB);
+    });
   };
 
   const syncFlagsFromSheets = async (savedUrl?: string) => {
-    const rawUrl = savedUrl || window.prompt('أدخل رابط Google Sheet للفلاجز (تأكد أنك على تاب الفلاجز):');
-    if (!rawUrl || !rawUrl.includes('google.com')) return;
+  let rawUrl = savedUrl || window.prompt("من فضلك أدخل رابط الشير (تأكد أنك واقف على تاب الفلاجات):");
+  if (!rawUrl || !rawUrl.includes('google.com')) return;
 
-    if (savedUrl) setSheetSyncing(prev => ({ ...prev, flags: true }));
+  if (savedUrl) setSheetSyncing(prev => ({ ...prev, flags: true }));
 
-    try {
+  const gidMatch = rawUrl.match(/gid=([0-9]+)/);
+  const gidParam = gidMatch ? `&gid=${gidMatch[1]}` : '';
+  const SHEET_URL = rawUrl.replace(/\/edit.*$/, `/export?format=csv${gidParam}`);
+
+  Papa.parse(SHEET_URL, {
+    download: true,
+    header: false,
+    skipEmptyLines: true,
+    complete: async (results) => {
+      const rows = results.data as any[];
+
+      // 🎯 السر هنا: بنجيب الـ ID اللي هو "T-4538" من الـ details أو الـ profile
+      // لو عندك حقل اسمه tutorCustomId استخدمه، لو اسمه id (واللي جواه رقم) استخدمه
       const searchId = String(details?.tutorCustomId || details?.id || tutorId).trim();
-      const newFlags = await gvizFlagsParser(rawUrl, searchId);
 
-      if (newFlags.length === 0) {
-        if (!savedUrl) alert(`لم يتم العثور على فلاجز للمدرس: ${searchId}`);
+      console.log("🔍 [DEBUG] Searching in sheet for ID:", searchId);
+
+      // فلترة الصفوف بناءً على الـ ID البشري (T-4538)
+      const tutorRows = rows.filter(row =>
+        String(row[2] || '').trim() === searchId
+      );
+
+      if (tutorRows.length === 0) {
+        if (!savedUrl) alert(`لم يتم العثور على Tutor ID: ${searchId} في هذا الشيت.`);
         if (savedUrl) setSheetSyncing(prev => ({ ...prev, flags: false }));
         return;
       }
 
-      // Batch write: wipe + insert
-      await batchSyncFlags(newFlags);
-      setFlags(newFlags);
+      const newFlags = tutorRows.map(row => ({
+        date: `${row[4] || ''} - ${row[5] || ''}`,
+        type: String(row[8] || 'Yellow Flag').trim(),
+        status: String(row[12] || 'Working on').trim(),
+        reason: row[9] || '-',
+        studentId: row[6] || 'N/A',
+        createdAt: new Date().toISOString(),
+        rawDate: new Date(row[4] || 0).getTime()
+      }));
 
-      // Save link back to tutor record
-      await updateDoc(doc(db, 'tutors', tutorId), { flagsSheetLink: rawUrl });
+      newFlags.sort((a, b) => b.rawDate - a.rawDate);
 
-      if (!savedUrl) alert(`✅ لقيت ${newFlags.length} فلاج وتم التحديث.`);
-    } catch (err) {
-      console.error('[ManualSyncFlags] Failed:', err);
-      if (!savedUrl) alert('❌ فشل تحديث البيانات من الشيت.');
-    } finally {
-      if (savedUrl) setSheetSyncing(prev => ({ ...prev, flags: false }));
+      // 3. تحديث الـ UI مباشرة (بدون ما ننتظر Firestore)
+      const flagsData = newFlags.map((f, i) => ({ ...f, id: `flag-sheet-${i}` }));
+      setFlags(flagsData);
+
+      // 4. التحديث في Firestore (في الخلفية)
+      try {
+        // هنا بنستخدم الـ UID (الحروف الكتير) فقط عشان نوصل للمكان في Firebase
+        // tutorId اللي مبعوت للـ Component هو الـ UID
+        const tutorUID = tutorId;
+        const tutorRef = doc(db, 'tutors', tutorUID);
+
+        // 1. تحديث اللينك
+        await updateDoc(tutorRef, { flagsSheetLink: rawUrl });
+
+        // 2. مسح وتحديث الفلاجات
+        const flagsRef = collection(db, 'tutors', tutorUID, 'flags');
+        const oldDocs = await getDocs(flagsRef);
+        await Promise.all(oldDocs.docs.map(d => deleteDoc(d.ref)));
+
+        for (const flag of newFlags) {
+          const { rawDate, ...flagToSave } = flag;
+          await addDoc(flagsRef, {
+              ...flagToSave,
+              mentorFeedback: "",
+              tutorFeedback: ""
+          });
+        }
+
+        if (!savedUrl) alert(`تمام يا سيف! لقيت ${newFlags.length} فلاج للمدرس ${searchId} وتم التحديث.`);
+      } catch (err) {
+        console.error("Firebase Error:", err);
+        if (!savedUrl) alert("حصلت مشكلة وأنا بحدث Firebase.");
+      } finally {
+        if (savedUrl) setSheetSyncing(prev => ({ ...prev, flags: false }));
+      }
     }
-  };
+  });
+};
   
   if (loading) return <Loading />;
   if (!details) return <div className="text-center py-12">{t('noData')}</div>;
