@@ -2311,6 +2311,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   const [loading, setLoading] = useState(true);
   const [initialSyncDone, setInitialSyncDone] = useState(false);
   const [sheetSyncing, setSheetSyncing] = useState({ study: false, flags: false });
+  const [studyPlans, setStudyPlans] = useState<any[]>([]);
 
   // Edit states
   const [isEditing, setIsEditing] = useState(false);
@@ -2430,24 +2431,31 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
 
         const specialId = String(tutorData.tutorCustomId || tutorData.id || '').trim();
 
-        // 2. READ localStorage cache immediately — no spinner, no sheet fetch
+        // --- الجزء الجديد لإصلاح الـ Error ---
+        // 2. FETCH studyPlanStatus (Manual Status Entries)
+        const qStudy = query(
+          collection(db, "tutors", tutorId, "studyPlanStatus"),
+          orderBy("month", "desc")
+        );
+        const studySnap = await getDocs(qStudy);
+        const studyData = studySnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        
+        if (isMounted) {
+          setStudyPlans(studyData); // تحديث الـ State بالبيانات الجديدة
+        }
+        // ---------------------------------------
+
+        // 3. READ localStorage cache for courses & flags
         const cachedCourses = localStorage.getItem(`studyplan_cache_${specialId}`);
         const cachedFlags = localStorage.getItem(`flags_cache_${specialId}`);
-        if (cachedCourses) {
-          try {
-            const parsed = JSON.parse(cachedCourses);
-            if (isMounted) setCourses(parsed);
-          } catch { /* ignore corrupted cache */ }
+        
+        if (cachedCourses && isMounted) {
+          try { setCourses(JSON.parse(cachedCourses)); } catch {}
         }
-        if (cachedFlags) {
-          try {
-            const parsed = JSON.parse(cachedFlags);
-            if (isMounted) setFlags(parsed);
-          } catch { /* ignore corrupted cache */ }
+        if (cachedFlags && isMounted) {
+          try { setFlags(JSON.parse(cachedFlags)); } catch {}
         }
 
-        // 3. Mark sync done — real-time listeners (onSnapshot below) will
-        //    fire with Firestore data; onSnapshot also updates localStorage cache
         if (isMounted) setInitialSyncDone(true);
       } catch (err) {
         console.error("[TutorDetail] Init error:", err);
@@ -2460,7 +2468,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
     init();
 
     return () => { isMounted = false; };
-  }, [tutorId]);
+}, [tutorId]);
 
   // ============================================================
   // REAL-TIME LISTENERS (only active after initial sync completes)
