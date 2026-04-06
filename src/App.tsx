@@ -1762,7 +1762,6 @@ function MentorDashboard({ onSelectTutor, mentor, registerListener }: { onSelect
   const [tutors, setTutors] = useState<UserProfile[]>([]);
   const [tutorDetails, setTutorDetails] = useState<Record<string, TutorDetails>>({});
   const [feedbacks, setFeedbacks] = useState<any[]>([]);
-  const [vacationRequests, setVacationRequests] = useState<any[]>([]); // New state for vacations
   const [loading, setLoading] = useState(true);
 
   // Stats for Card 2
@@ -1797,19 +1796,6 @@ function MentorDashboard({ onSelectTutor, mentor, registerListener }: { onSelect
       setFeedbacks(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     }, (error) => handleFirestoreError(error, OperationType.LIST, 'feedbacks'));
     registerListener(unsubFeedbacks);
-
-    // 1. Fetch Vacations (تنبيهات الإجازات الجديدة)
-    const qVacations = query(
-      collection(db, 'vacationRequests'),
-      where('mentorId', '==', mentor.uid), // عشان تظهر للمنتور الخاص بالتوتر بس
-      where('status', '==', 'pending')
-    );
-
-    const unsubVacations = onSnapshot(qVacations, (snap) => {
-      setVacationRequests(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    }, (error) => console.error("Vacation fetch error:", error));
-
-    registerListener(unsubVacations);
 
     // Fetch details for all tutors to calculate total performance
     const fetchDetails = async () => {
@@ -1863,144 +1849,75 @@ function MentorDashboard({ onSelectTutor, mentor, registerListener }: { onSelect
     <div className="space-y-8">
       {/* Card 1: Tutor Table */}
       <motion.div 
-    initial={{ opacity: 0, x: -20 }}
-    animate={{ opacity: 1, x: 0 }}
-    className="bg-white rounded-2xl shadow-lg border border-[#89CFF0]/20 overflow-hidden"
-  >
-    <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-[#89CFF0]/5">
-      <h3 className="text-lg font-bold text-[#0047AB] flex items-center gap-2">
-        <Users size={20} />
-        {t('tutors')}
-      </h3>
-    </div>
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm text-left">
-        <thead className="bg-gray-50 text-gray-600 uppercase text-xs font-bold">
-          <tr>
-            <th className="px-6 py-4">{t('id')}</th>
-            <th className="px-6 py-4">{t('name')}</th>
-            <th className="px-6 py-4">{t('studyPlan')}</th>
-            <th className="px-6 py-4">{t('vacations')}</th>
-            {/* تم تحديث اسم العمود هنا */}
-            <th className="px-6 py-4">Last Quality Rate</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100">
-          {tutors.map((tutor) => {
-            const details = tutorDetails[tutor.uid];
-            return (
-              <tr key={tutor.uid} className="hover:bg-[#89CFF0]/5 transition-colors">
-                <td className="px-6 py-4 font-mono text-gray-500">{tutor.tutorId}</td>
-                <td className="px-6 py-4">
-                  <button 
-                    onClick={() => onSelectTutor(tutor.uid)}
-                    className="text-[#0047AB] font-bold hover:underline flex items-center gap-2"
-                  >
-                    <div className="w-8 h-8 rounded-full bg-[#89CFF0]/20 flex items-center justify-center text-[#0047AB] text-xs font-bold">
-                      {tutor.name.charAt(0)}
-                    </div>
-                    {tutor.name}
-                    <ChevronRight size={14} />
-                  </button>
-                </td>
-                <td className="px-6 py-4">
-                  {details?.studyPlan ? (
-                    <div className="space-y-1">
-                      <span className="block text-[10px] px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full w-fit font-medium">{details.studyPlan.course1}</span>
-                      <span className="block text-[10px] px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full w-fit font-medium">{details.studyPlan.course2}</span>
-                    </div>
-                  ) : <span className="text-gray-300">-</span>}
-                </td>
-                <td className="px-6 py-4 text-gray-500">
-                  <div className="flex items-center gap-1">
-                    <Calendar size={14} className="text-gray-400" />
-                    <span className="font-medium">{details?.vacationCount || 0}</span>
-                  </div>
-                </td>
-                <td className="px-6 py-4">
-                  {/* منطق عرض نسبة الجودة الجديد */}
-                  <div className="flex items-center gap-2">
-                    {details?.performance?.quality !== undefined ? (
-                      <div className="flex flex-col gap-1">
-                        <div className="w-20 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                          <div 
-                            className={`h-full rounded-full transition-all duration-500 ${
-                              details.performance.quality >= 80 ? 'bg-green-500' : 
-                              details.performance.quality >= 50 ? 'bg-yellow-500' : 'bg-red-500'
-                            }`}
-                            style={{ width: `${details.performance.quality}%` }}
-                          />
-                        </div>
-                        <span className={`text-[11px] font-bold ${
-                          details.performance.quality >= 80 ? 'text-green-600' : 
-                          details.performance.quality >= 50 ? 'text-yellow-600' : 'text-red-600'
-                        }`}>
-                          {details.performance.quality}%
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="text-gray-300 text-xs italic">No reports</span>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  </motion.div>
-
-  {/* Vacation Requests Alert Section - NEW */}
-  <motion.div 
-    initial={{ opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    className="bg-white rounded-2xl shadow-lg border border-orange-100 overflow-hidden"
-  >
-    <div className="p-5 border-b border-orange-50 flex items-center justify-between bg-orange-50/30">
-      <h3 className="text-md font-bold text-orange-700 flex items-center gap-2">
-        <Calendar size={20} className="text-orange-500" />
-        New Vacation Requests
-      </h3>
-      <span className="bg-orange-500 text-white text-xs font-bold px-2.5 py-1 rounded-full">
-        {vacationRequests.length}
-      </span>
-    </div>
-    <div className="p-5">
-      {vacationRequests.length === 0 ? (
-        <p className="text-center text-gray-400 text-sm py-4 italic">No pending requests at the moment.</p>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {vacationRequests.map((req) => (
-            <div key={req.id} className="flex items-center justify-between p-4 bg-orange-50/20 rounded-xl border border-orange-100 hover:border-orange-200 transition-all shadow-sm">
-              <div className="space-y-1">
-                <p className="text-sm font-bold text-[#0047AB]">{req.tutorName}</p>
-                <p className="text-xs text-gray-500 font-medium">
-                  {req.start} <span className="text-orange-300 mx-1">→</span> {req.end}
-                </p>
-                <p className="text-[11px] text-gray-600 italic mt-1 bg-white/50 p-1.5 rounded-md border border-orange-50">
-                  "{req.reason}"
-                </p>
-              </div>
-              <button 
-                onClick={async () => {
-                  try {
-                    await deleteDoc(doc(db, 'vacationRequests', req.id));
-                  } catch (err) {
-                    console.error("Error clearing request:", err);
-                  }
-                }}
-                className="p-2.5 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-colors shadow-sm"
-                title="Acknowledge & Clear"
-              >
-                <CheckCircle size={18} />
-              </button>
-            </div>
-          ))}
+        initial={{ opacity: 0, x: -20 }}
+        animate={{ opacity: 1, x: 0 }}
+        className="bg-white rounded-2xl shadow-lg border border-[#89CFF0]/20 overflow-hidden"
+      >
+        <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-[#89CFF0]/5">
+          <h3 className="text-lg font-bold text-[#0047AB] flex items-center gap-2">
+            <Users size={20} />
+            {t('tutors')}
+          </h3>
         </div>
-      )}
-    </div>
-  </motion.div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm text-left">
+            <thead className="bg-gray-50 text-gray-600 uppercase text-xs font-bold">
+              <tr>
+                <th className="px-6 py-4">{t('id')}</th>
+                <th className="px-6 py-4">{t('name')}</th>
+                <th className="px-6 py-4">{t('studyPlan')}</th>
+                <th className="px-6 py-4">{t('vacations')}</th>
+                <th className="px-6 py-4">{t('monthFlags')}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {tutors.map((tutor) => {
+                const details = tutorDetails[tutor.uid];
+                return (
+                  <tr key={tutor.uid} className="hover:bg-[#89CFF0]/5 transition-colors">
+                    <td className="px-6 py-4 font-mono text-gray-500">{tutor.tutorId}</td>
+                    <td className="px-6 py-4">
+                      <button 
+                        onClick={() => onSelectTutor(tutor.uid)}
+                        className="text-[#0047AB] font-bold hover:underline flex items-center gap-2"
+                      >
+                        <div className="w-8 h-8 rounded-full bg-[#89CFF0]/20 flex items-center justify-center text-[#0047AB] text-xs">
+                          {tutor.name.charAt(0)}
+                        </div>
+                        {tutor.name}
+                        <ChevronRight size={14} />
+                      </button>
+                    </td>
+                    <td className="px-6 py-4">
+                      {details?.studyPlan ? (
+                        <div className="space-y-1">
+                          <span className="block text-xs px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full w-fit">{details.studyPlan.course1}</span>
+                          <span className="block text-xs px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full w-fit">{details.studyPlan.course2}</span>
+                        </div>
+                      ) : '-'}
+                    </td>
+                    <td className="px-6 py-4 text-gray-500">
+                      <Calendar size={16} className="inline mr-1" />
+                      {details?.vacationCount || 0}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex gap-1">
+                        {Array.from({ length: details?.redFlags || 0 }).map((_, i) => (
+                          <div key={`red-${i}`} className="w-3 h-3 rounded-full bg-red-500" title="Red Flag"></div>
+                        ))}
+                        {Array.from({ length: details?.yellowFlags || 0 }).map((_, i) => (
+                          <div key={`yellow-${i}`} className="w-3 h-3 rounded-full bg-yellow-400" title="Yellow Flag"></div>
+                        ))}
+                        {(!details?.redFlags && !details?.yellowFlags) && <span className="text-gray-300">-</span>}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </motion.div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Card 2: Performance Wheel */}
@@ -2483,19 +2400,11 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
       setReports(snap.docs.map(d => ({ id: d.id, ...d.data() } as QualityReport)));
     }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/qualityReports`));
 
-    // 1. Study Plans — real-time (الجديد الذي أضفناه)
-    const unsubStudyPlans = onSnapshot(
-      query(collection(db, 'tutors', tutorId, 'studyPlans'), orderBy('timestamp', 'desc')), 
-      (snap) => {
-        setStudyPlans(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      }, 
-      (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/studyPlans`)
-    );
-
     // Courses — real-time (only after sync done)
     const unsubCourses = onSnapshot(collection(db, 'tutors', tutorId, 'courses'), (snap) => {
       const newCourses = snap.docs.map(d => ({ id: d.id, ...d.data() } as Course));
       setCourses(newCourses);
+      // Update localStorage cache
       const specialId = String(details?.tutorCustomId || details?.id || '');
       if (specialId) localStorage.setItem(`studyplan_cache_${specialId}`, JSON.stringify(newCourses));
     }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/courses`));
@@ -2504,15 +2413,14 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
     const unsubFlags = onSnapshot(collection(db, 'tutors', tutorId, 'flags'), (snap) => {
       const newFlags = snap.docs.map(d => ({ id: d.id, ...d.data() } as Flag));
       setFlags(newFlags);
+      // Update localStorage cache
       const specialId = String(details?.tutorCustomId || details?.id || '');
       if (specialId) localStorage.setItem(`flags_cache_${specialId}`, JSON.stringify(newFlags));
     }, (error) => handleFirestoreError(error, OperationType.LIST, `tutors/${tutorId}/flags`));
 
-    // تسجيل الـ Listeners
     registerListener(unsubProfile);
     registerListener(unsubVacations);
     registerListener(unsubReports);
-    registerListener(unsubStudyPlans); // أضفنا هذا
     registerListener(unsubCourses);
     registerListener(unsubFlags);
 
@@ -2520,7 +2428,6 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
       unsubProfile();
       unsubVacations();
       unsubReports();
-      unsubStudyPlans(); // أضفنا هذا للإغلاق
       unsubCourses();
       unsubFlags();
     };
@@ -2581,20 +2488,6 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
       reportUrl: ''
     };
     await addDoc(collection(db, 'tutors', tutorId, 'qualityReports'), newVal);
-  };
-
-  const handleAddStudyPlan = async () => {
-    await addDoc(collection(db, 'tutors', tutorId, 'studyPlans'), {
-      month: new Date().toLocaleString('default', { month: 'long' }),
-      course1: '',
-      course1Grade: '',
-      course2: '',
-      course2Grade: '',
-      notes: '',
-      materialLink: '',
-      status: 'in_progress', 
-      timestamp: new Date().toISOString()
-    });
   };
 
   const handleUploadReport = async (reportId: string, pdfLink: string) => {
@@ -2918,173 +2811,99 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
       />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        {/* 1. Total Performance Analysis Card */}
-        <TotalPerformanceCard 
-          flags={flags} 
-          qualityReports={reports} // تم تعديل الاسم ليطابق متغيراتك (reports)
-          studyPlans={studyPlans} 
-        />
         {/* A) Study Plan */}
-        <Card 
-          title={t('studyPlan')} 
-          icon={<BookOpen size={20} />} 
-          onAdd={isMentor ? handleAddStudyPlan : undefined}
+        <Card
+          title={
+            <div className="flex justify-between items-center w-full">
+              <span>{t('studyPlan')}</span>
+            </div>
+          }
+          icon={<BookOpen size={20} />}
         >
-          <div className="space-y-8 divide-y divide-gray-100">
-            {studyPlans.map((plan) => (
-              <div key={plan.id} className="pt-6 first:pt-0 space-y-4 relative group">
-                {/* زر الحذف للمنتور */}
-                {isMentor && (
-                  <button 
-                    onClick={() => {
-                      setConfirmConfig({
-                        isOpen: true,
-                        title: t('confirmAction'),
-                        message: "Are you sure you want to delete this study plan?",
-                        onConfirm: async () => {
-                          await deleteDoc(doc(db, 'tutors', tutorId, 'studyPlans', plan.id));
-                          setConfirmConfig(prev => ({ ...prev, isOpen: false }));
-                        }
-                      });
-                    }}
-                    className="absolute top-0 right-0 p-1 text-red-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                )}
-
-                {/* Header: Month & Status */}
-                <div className="flex items-center justify-between">
-                  {isMentor ? (
-                    <input 
-                      value={plan.month}
-                      onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'studyPlans', plan.id), { month: e.target.value })}
-                      placeholder="Month (e.g. October)"
-                      className="px-3 py-1 bg-[#89CFF0]/20 text-[#0047AB] rounded-full text-xs font-bold uppercase border-none focus:ring-0 w-32"
-                    />
-                  ) : (
-                    <span className="px-3 py-1 bg-[#89CFF0]/20 text-[#0047AB] rounded-full text-xs font-bold uppercase">{plan.month}</span>
-                  )}
-
-                  {/* Status Dropdown / Badge */}
-                  <div className="flex items-center gap-2">
-                    {isMentor ? (
-                      <select
-                        value={plan.status}
-                        onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'studyPlans', plan.id), { status: e.target.value })}
-                        className={`text-[10px] font-bold py-1 px-2 rounded-lg border-none focus:ring-0 ${
-                          plan.status === 'done_both' ? 'bg-green-100 text-green-700' :
-                          plan.status === 'done_one' ? 'bg-[#89CFF0]/30 text-[#0047AB]' :
-                          plan.status === 'in_progress' ? 'bg-yellow-100 text-yellow-700' :
-                          'bg-red-100 text-red-700'
-                        }`}
-                      >
-                        <option value="done_both">Done Both</option>
-                        <option value="done_one">Done One Course</option>
-                        <option value="in_progress">In Progress</option>
-                        <option value="ignored">Ignored</option>
-                      </select>
-                    ) : (
-                      <span className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase ${
-                        plan.status === 'done_both' ? 'bg-green-500 text-white' :
-                        plan.status === 'done_one' ? 'bg-[#89CFF0] text-white' :
-                        plan.status === 'in_progress' ? 'bg-yellow-400 text-black' :
-                        'bg-red-500 text-white'
-                      }`}>
-                        {plan.status.replace('_', ' ')}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Courses Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Course 1 */}
-                  <div className="p-4 bg-[#89CFF0]/10 rounded-xl border border-[#89CFF0]/20">
-                    <p className="text-xs font-bold text-gray-400 uppercase mb-2">Course 1</p>
-                    <div className="space-y-2">
-                      {isMentor ? (
-                        <>
-                          <input 
-                            placeholder="Course Name"
-                            value={plan.course1}
-                            onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'studyPlans', plan.id), { course1: e.target.value })}
-                            className="w-full bg-white/50 px-2 py-1 rounded border border-[#89CFF0]/30 text-sm"
-                          />
-                          <input 
-                            placeholder="Grade"
-                            value={plan.course1Grade}
-                            onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'studyPlans', plan.id), { course1Grade: e.target.value })}
-                            className="w-full bg-white/50 px-2 py-1 rounded border border-[#89CFF0]/30 text-sm"
-                          />
-                        </>
-                      ) : (
-                        <>
-                          <p className="font-bold text-[#0047AB]">{plan.course1 || '-'}</p>
-                          <span className="px-2 py-0.5 bg-[#89CFF0]/20 text-[#0047AB] rounded text-xs font-bold w-fit">{plan.course1Grade || '-'}</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Course 2 */}
-                  <div className="p-4 bg-[#89CFF0]/10 rounded-xl border border-[#89CFF0]/20">
-                    <p className="text-xs font-bold text-gray-400 uppercase mb-2">Course 2</p>
-                    <div className="space-y-2">
-                      {isMentor ? (
-                        <>
-                          <input 
-                            placeholder="Course Name"
-                            value={plan.course2}
-                            onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'studyPlans', plan.id), { course2: e.target.value })}
-                            className="w-full bg-white/50 px-2 py-1 rounded border border-[#89CFF0]/30 text-sm"
-                          />
-                          <input 
-                            placeholder="Grade"
-                            value={plan.course2Grade}
-                            onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'studyPlans', plan.id), { course2Grade: e.target.value })}
-                            className="w-full bg-white/50 px-2 py-1 rounded border border-[#89CFF0]/30 text-sm"
-                          />
-                        </>
-                      ) : (
-                        <>
-                          <p className="font-bold text-[#0047AB]">{plan.course2 || '-'}</p>
-                          <span className="px-2 py-0.5 bg-[#89CFF0]/20 text-[#0047AB] rounded text-xs font-bold w-fit">{plan.course2Grade || '-'}</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Notes & Material Link */}
-                <div className="grid grid-cols-1 gap-4 text-sm">
-                  <div>
-                    <p className="text-xs font-bold text-gray-500 uppercase mb-1">Notes</p>
-                    {isMentor ? (
-                      <textarea 
-                        value={plan.notes}
-                        onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'studyPlans', plan.id), { notes: e.target.value })}
-                        className="w-full border rounded px-3 py-2 text-sm h-16"
-                      />
-                    ) : <p className="bg-gray-50 p-2 rounded text-gray-700">{plan.notes || '-'}</p>}
-                  </div>
-                  <div>
-                    <p className="text-xs font-bold text-gray-500 uppercase mb-1">Material Link</p>
-                    {isMentor ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-4">
+              <div className="p-4 bg-[#89CFF0]/10 rounded-xl border border-[#89CFF0]/20">
+                <p className="text-xs font-bold text-gray-500 uppercase mb-2">Course 1</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {isEditing ? (
+                    <>
                       <input 
-                        value={plan.materialLink}
-                        onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'studyPlans', plan.id), { materialLink: e.target.value })}
-                        className="w-full border rounded px-2 py-1"
+                        placeholder={t('courseName')}
+                        value={editData.studyPlan.course1}
+                        onChange={(e) => setEditData({...editData, studyPlan: {...editData.studyPlan, course1: e.target.value}})}
+                        className="w-full bg-white px-2 py-1 rounded border text-sm"
                       />
-                    ) : plan.materialLink ? (
-                      <a href={plan.materialLink} target="_blank" className="text-blue-600 underline text-xs break-all flex items-center gap-1">
-                        <Globe size={12}/> {plan.materialLink}
-                      </a>
-                    ) : '-'}
-                  </div>
+                      <input 
+                        placeholder={t('grade')}
+                        value={editData.studyPlan.course1Grade || ''}
+                        onChange={(e) => setEditData({...editData, studyPlan: {...editData.studyPlan, course1Grade: e.target.value}})}
+                        className="w-full bg-white px-2 py-1 rounded border text-sm"
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-bold text-[#0047AB]">{details.studyPlan.course1 || '-'}</p>
+                      <span className="px-2 py-0.5 bg-[#89CFF0]/20 text-[#0047AB] rounded text-xs font-bold w-fit">{details.studyPlan.course1Grade || '-'}</span>
+                    </>
+                  )}
                 </div>
               </div>
-            ))}
+              <div className="p-4 bg-[#89CFF0]/10 rounded-xl border border-[#89CFF0]/20">
+                <p className="text-xs font-bold text-gray-500 uppercase mb-2">Course 2</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {isEditing ? (
+                    <>
+                      <input 
+                        placeholder={t('courseName')}
+                        value={editData.studyPlan.course2}
+                        onChange={(e) => setEditData({...editData, studyPlan: {...editData.studyPlan, course2: e.target.value}})}
+                        className="w-full bg-white px-2 py-1 rounded border text-sm"
+                      />
+                      <input 
+                        placeholder={t('grade')}
+                        value={editData.studyPlan.course2Grade || ''}
+                        onChange={(e) => setEditData({...editData, studyPlan: {...editData.studyPlan, course2Grade: e.target.value}})}
+                        className="w-full bg-white px-2 py-1 rounded border text-sm"
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-bold text-[#0047AB]">{details.studyPlan.course2 || '-'}</p>
+                      <span className="px-2 py-0.5 bg-[#89CFF0]/20 text-[#0047AB] rounded text-xs font-bold w-fit">{details.studyPlan.course2Grade || '-'}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-bold text-gray-500 uppercase mb-1">{t('notes')}</p>
+              {isEditing ? (
+                <textarea 
+                  value={editData.studyPlan.notes}
+                  onChange={(e) => setEditData({...editData, studyPlan: {...editData.studyPlan, notes: e.target.value}})}
+                  className="w-full bg-white px-3 py-2 rounded border h-20"
+                />
+              ) : <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded-lg">{details.studyPlan.notes || '-'}</p>}
+            </div>
+            <div>
+              <p className="text-xs font-bold text-gray-500 uppercase mb-1">{t('materialLink')}</p>
+              {isEditing ? (
+                <input 
+                  value={editData.studyPlan.materialLink}
+                  onChange={(e) => setEditData({...editData, studyPlan: {...editData.studyPlan, materialLink: e.target.value}})}
+                  className="w-full bg-white px-3 py-2 rounded border"
+                />
+              ) : (
+                details.studyPlan.materialLink ? (
+                  <a href={details.studyPlan.materialLink} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center gap-1 text-sm">
+                    {details.studyPlan.materialLink}
+                  </a>
+                ) : '-'
+              )}
+            </div>
+            {isEditing && (
+              <button onClick={handleSaveDetails} className="w-full bg-[#0047AB] text-white py-2 rounded-lg font-bold">{t('save')}</button>
+            )}
           </div>
         </Card>
 
@@ -3528,106 +3347,6 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
         </Card>
       </div>
     </div>
-  );
-}
-
-  function TotalPerformanceCard({ flags, reports, studyPlans }: any) {
-  const [period, setPeriod] = useState(1);
-
-  const calculateStats = (months: number) => {
-    const cutoff = new Date();
-    cutoff.setMonth(cutoff.getMonth() - months);
-    
-    // فلترة البيانات بناءً على تاريخ الحقل 'date' للفلاجات أو 'timestamp' للباقي
-    const filteredFlags = flags.filter((f: any) => new Date(f.date) >= cutoff);
-    const filteredReports = reports.filter((r: any) => new Date(r.timestamp) >= cutoff);
-    const filteredPlans = studyPlans.filter((p: any) => new Date(p.timestamp) >= cutoff);
-
-    // حساب الفلاجات
-    const red = filteredFlags.filter((f: any) => f.type?.toLowerCase().includes('red')).length;
-    const yellow = filteredFlags.filter((f: any) => f.type?.toLowerCase().includes('yellow')).length;
-    
-    // كشف التكرار في الأسباب
-    const reasonCounts: any = {};
-    filteredFlags.forEach((f: any) => {
-      if(f.reason) reasonCounts[f.reason] = (reasonCounts[f.reason] || 0) + 1;
-    });
-    const repeated = Object.entries(reasonCounts)
-      .filter(([_, count]: any) => count > 1)
-      .map(([reason]: any) => reason);
-
-    // متوسط الجودة (بناءً على حقل percentage في ملفك)
-    const avgQuality = filteredReports.length 
-      ? Math.round(filteredReports.reduce((acc: any, curr: any) => acc + (curr.percentage || 0), 0) / filteredReports.length) 
-      : 0;
-
-    // نسبة إنجاز الـ Study Plan
-    const totalPlans = filteredPlans.length || 1;
-    const doneBothCount = filteredPlans.filter((p: any) => p.status === 'done_both').length;
-    
-    return { 
-      red, 
-      yellow, 
-      repeated, 
-      avgQuality, 
-      doneBothPercent: Math.round((doneBothCount / totalPlans) * 100) 
-    };
-  };
-
-  const data = calculateStats(period);
-
-  return (
-    <Card title="Total Performance Analysis" icon={<TrendingUp size={20} />}>
-      <div className="p-4 space-y-6">
-        {/* Period Selector */}
-        <div className="flex justify-center gap-2 p-1 bg-gray-50 rounded-xl">
-          {[1, 3, 6].map(m => (
-            <button key={m} onClick={() => setPeriod(m)} 
-              className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all ${period === m ? 'bg-[#0047AB] text-white' : 'text-gray-400'}`}>
-              {m === 1 ? 'Month' : `${m}M`}
-            </button>
-          ))}
-        </div>
-
-        {/* Flags Grid */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="p-3 bg-red-50 rounded-2xl border border-red-100 text-center">
-            <p className="text-[10px] text-red-600 font-bold uppercase">Red</p>
-            <p className="text-2xl font-black text-red-700">{data.red}</p>
-          </div>
-          <div className="p-3 bg-yellow-50 rounded-2xl border border-yellow-100 text-center">
-            <p className="text-[10px] text-yellow-600 font-bold uppercase">Yellow</p>
-            <p className="text-2xl font-black text-yellow-700">{data.yellow}</p>
-          </div>
-        </div>
-
-        {/* Repeated Issues Section */}
-        {data.repeated.length > 0 && (
-          <div className="bg-orange-50 p-3 rounded-xl border border-orange-100">
-            <p className="text-[10px] text-orange-700 font-bold mb-1 flex items-center gap-1 uppercase">
-              <AlertCircle size={12}/> Repeated Issues:
-            </p>
-            <div className="flex flex-wrap gap-1">
-              {data.repeated.map((r, i) => (
-                <span key={i} className="text-[9px] bg-white px-2 py-0.5 rounded border border-orange-200 text-orange-800 font-bold">{r}</span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Footer Stats */}
-        <div className="space-y-4 pt-2 border-t border-gray-50">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-gray-500">Avg. Quality Rate</span>
-            <span className="text-xs font-black text-[#0047AB]">{data.avgQuality}%</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-gray-500">Plans Done (Both)</span>
-            <span className="text-xs font-black text-green-600">{data.doneBothPercent}%</span>
-          </div>
-        </div>
-      </div>
-    </Card>
   );
 }
 
