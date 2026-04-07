@@ -58,7 +58,7 @@ export interface TutorDetails {
   name: string;
   studyPlan: StudyPlan;
   studyPlanArray?: MonthlyStudyPlan[];
-  monthlyPerformance?: MonthlyPerformance[];
+  performanceHistory?: MonthlyPerformance[];
   performance: Performance;
   status: 'active' | 'resigned';
   vacationCount?: number;

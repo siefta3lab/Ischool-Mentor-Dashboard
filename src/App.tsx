@@ -2235,8 +2235,8 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   const now = new Date();
   const [startDate, setStartDate] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
 
-  // Monthly Performance State
-  const [perfMonth, setPerfMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
+  // Performance array state
+  const [performanceHistory, setPerformanceHistory] = useState<MonthlyPerformance[]>([]);
 
   // Study Plan array state
   const [studyPlanArray, setStudyPlanArray] = useState<MonthlyStudyPlan[]>([]);
@@ -2244,9 +2244,14 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   const [newPlanMonth, setNewPlanMonth] = useState('');
   const [newPlanStatus, setNewPlanStatus] = useState('In Progress');
 
-  // Edit states
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<any>(null);
+
+  useEffect(() => {
+    if (details?.performanceHistory) {
+      setPerformanceHistory(details.performanceHistory);
+    }
+  }, [details?.performanceHistory]);
 
   const [confirmConfig, setConfirmConfig] = useState<{
     isOpen: boolean;
@@ -3272,79 +3277,102 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
         </Card>
 
         {/* D) Performance */}
-        <Card title={t('performance')} icon={<TrendingUp size={20} />}>
-          <div className="space-y-6">
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-bold text-gray-500 uppercase">{t('selectMonth') || 'Select Month'}</label>
-              <input 
-                type="month"
-                value={perfMonth}
-                onChange={(e) => setPerfMonth(e.target.value)}
-                className="px-3 py-1 border rounded-lg text-sm focus:ring-2 focus:ring-[#89CFF0]"
-              />
-            </div>
-            {(() => {
-              const currentMonthlyPerf = details.monthlyPerformance?.find(p => p.month === perfMonth) || { quality: 0, work: 0, month: perfMonth };
-              return (
-                <>
-                  <div className="flex items-center justify-between p-4 bg-green-50 rounded-xl border border-green-100">
-                    <div>
-                      <p className="text-xs font-bold text-green-600 uppercase">{t('total')}</p>
-                      <p className="text-3xl font-bold text-green-700">
-                        {(((currentMonthlyPerf.quality || 0) + (currentMonthlyPerf.work || 0)) / 2).toFixed(1)}%
-                      </p>
-                    </div>
-                    <div className="w-12 h-12 bg-green-200 rounded-full flex items-center justify-center text-green-700">
-                      <CheckCircle size={24} />
-                    </div>
+        <Card 
+          title={t('performance')} 
+          icon={<TrendingUp size={20} />}
+          onAdd={isMentor ? async () => {
+            const now = new Date();
+            const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            const newArr = [...performanceHistory, { month: defaultMonth, quality: 0, work: 0 }];
+            setPerformanceHistory(newArr);
+            await updateDoc(doc(db, 'tutors', tutorId), { performanceHistory: newArr });
+          } : undefined}
+        >
+          <div className="space-y-4">
+            {performanceHistory.length === 0 ? (
+              <p className="text-sm text-gray-400 italic text-center py-4">No performance history yet.</p>
+            ) : (
+              performanceHistory.map((perf, idx) => (
+                <div key={idx} className="p-4 rounded-xl border bg-gray-50 flex flex-col gap-4 relative group">
+                  <div className="flex items-center justify-between border-b border-gray-200 pb-2">
+                    {isMentor ? (
+                      <input 
+                        type="month"
+                        value={perf.month}
+                        onChange={async (e) => {
+                          const newArr = [...performanceHistory];
+                          newArr[idx].month = e.target.value;
+                          setPerformanceHistory(newArr);
+                          await updateDoc(doc(db, 'tutors', tutorId), { performanceHistory: newArr });
+                        }}
+                        className="px-2 py-1 text-sm font-bold bg-white border rounded focus:ring-2 focus:ring-[#89CFF0]"
+                      />
+                    ) : (
+                      <span className="font-bold text-lg">{perf.month}</span>
+                    )}
+                    {isMentor && (
+                      <button 
+                        onClick={async () => {
+                          const newArr = performanceHistory.filter((_, i) => i !== idx);
+                          setPerformanceHistory(newArr);
+                          await updateDoc(doc(db, 'tutors', tutorId), { performanceHistory: newArr });
+                        }}
+                        className="text-gray-400 hover:text-red-500 transition-colors"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
                   </div>
+
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="p-4 bg-white border rounded-xl">
-                      <p className="text-xs font-bold text-gray-500 uppercase mb-1">{t('quality')}</p>
+                    <div className="p-3 bg-white rounded-lg border border-gray-100 shadow-sm">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">{t('quality')}</p>
                       {isMentor ? (
                         <input 
-                          type="number" 
-                          value={currentMonthlyPerf.quality || 0} 
+                          type="number"
+                          value={perf.quality}
                           onChange={async (e) => {
-                            const val = Number(e.target.value);
-                            const updatedMonthly = [...(details.monthlyPerformance || [])];
-                            const idx = updatedMonthly.findIndex(p => p.month === perfMonth);
-                            if (idx >= 0) {
-                              updatedMonthly[idx].quality = val;
-                            } else {
-                              updatedMonthly.push({ month: perfMonth, quality: val, work: 0 });
-                            }
-                            await updateDoc(doc(db, 'tutors', tutorId), { monthlyPerformance: updatedMonthly });
+                            const newArr = [...performanceHistory];
+                            newArr[idx].quality = Number(e.target.value);
+                            setPerformanceHistory(newArr);
+                            await updateDoc(doc(db, 'tutors', tutorId), { performanceHistory: newArr });
                           }}
-                          className="w-full border rounded px-2 py-1"
+                          className="w-full text-lg font-bold text-[#0047AB] border-none p-0 focus:ring-0"
                         />
-                      ) : <p className="text-xl font-bold text-[#0047AB]">{currentMonthlyPerf.quality || 0}%</p>}
+                      ) : (
+                        <p className="font-bold text-[#0047AB] text-lg">{perf.quality}%</p>
+                      )}
                     </div>
-                    <div className="p-4 bg-white border rounded-xl">
-                      <p className="text-xs font-bold text-gray-500 uppercase mb-1">{t('work')}</p>
+                    
+                    <div className="p-3 bg-white rounded-lg border border-gray-100 shadow-sm">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">{t('work')}</p>
                       {isMentor ? (
                         <input 
-                          type="number" 
-                          value={currentMonthlyPerf.work || 0} 
+                          type="number"
+                          value={perf.work}
                           onChange={async (e) => {
-                            const val = Number(e.target.value);
-                            const updatedMonthly = [...(details.monthlyPerformance || [])];
-                            const idx = updatedMonthly.findIndex(p => p.month === perfMonth);
-                            if (idx >= 0) {
-                              updatedMonthly[idx].work = val;
-                            } else {
-                              updatedMonthly.push({ month: perfMonth, quality: 0, work: val });
-                            }
-                            await updateDoc(doc(db, 'tutors', tutorId), { monthlyPerformance: updatedMonthly });
+                            const newArr = [...performanceHistory];
+                            newArr[idx].work = Number(e.target.value);
+                            setPerformanceHistory(newArr);
+                            await updateDoc(doc(db, 'tutors', tutorId), { performanceHistory: newArr });
                           }}
-                          className="w-full border rounded px-2 py-1"
+                          className="w-full text-lg font-bold text-[#0047AB] border-none p-0 focus:ring-0"
                         />
-                      ) : <p className="text-xl font-bold text-[#0047AB]">{currentMonthlyPerf.work || 0}%</p>}
+                      ) : (
+                        <p className="font-bold text-[#0047AB] text-lg">{perf.work}%</p>
+                      )}
                     </div>
                   </div>
-                </>
-              )
-            })()}
+
+                  <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-200">
+                      <span className="text-xs font-bold text-gray-500 uppercase">Average</span>
+                      <span className="font-bold text-green-600">
+                        {(((perf.quality || 0) + (perf.work || 0)) / 2).toFixed(1)}%
+                      </span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </Card>
 
@@ -3595,7 +3623,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                 const ts = f.rawDate || new Date(f.date).getTime();
                 if (!isNaN(ts)) allDates.push(ts);
               });
-              (details.monthlyPerformance || []).forEach(p => {
+              (details.performanceHistory || []).forEach(p => {
                 if (!p.month) return;
                 const [y, m] = p.month.split('-');
                 if(y && m) {
@@ -3613,7 +3641,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
               const redCount = filteredFlags.filter(f => f.type?.toLowerCase().includes('red')).length;
               const yellowCount = filteredFlags.filter(f => f.type?.toLowerCase().includes('yellow')).length;
 
-              const filteredMonthlyPerf = (details.monthlyPerformance || []).filter(p => {
+              const filteredMonthlyPerf = (details.performanceHistory || []).filter(p => {
                 if (!p.month) return false;
                 const [y, m] = p.month.split('-');
                 if(!y || !m) return false;
