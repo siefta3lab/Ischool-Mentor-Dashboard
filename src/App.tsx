@@ -1,55 +1,55 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import Papa from 'papaparse';
-import { 
-  collection, 
-  doc, 
-  getDoc, 
-  getDocs, 
-  onSnapshot, 
-  query, 
-  setDoc, 
-  updateDoc, 
-  deleteDoc, 
-  addDoc, 
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  query,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  addDoc,
   where,
   orderBy,
   getDocFromServer,
   Timestamp,
   increment,
-  CollectionReference 
+  CollectionReference
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { initializeApp, getApp, getApps } from 'firebase/app';
-import { 
-  signInWithEmailAndPassword, 
+import {
+  signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signInWithPopup,
   GoogleAuthProvider,
-  signOut, 
-  onAuthStateChanged, 
+  signOut,
+  onAuthStateChanged,
   getAuth,
-  User 
+  User
 } from 'firebase/auth';
-import { 
-  LayoutDashboard, 
-  Users, 
-  PlusCircle, 
-  LogOut, 
-  ChevronRight, 
-  Calendar, 
-  FileText, 
-  TrendingUp, 
-  BookOpen, 
-  Flag as FlagIcon, 
-  Trash2, 
-  Edit, 
-  UserMinus, 
-  Globe, 
-  Send, 
-  Plus, 
-  X, 
-  CheckCircle, 
-  AlertCircle, 
+import {
+  LayoutDashboard,
+  Users,
+  PlusCircle,
+  LogOut,
+  ChevronRight,
+  Calendar,
+  FileText,
+  TrendingUp,
+  BookOpen,
+  Flag as FlagIcon,
+  Trash2,
+  Edit,
+  UserMinus,
+  Globe,
+  Send,
+  Plus,
+  X,
+  CheckCircle,
+  AlertCircle,
   Clock,
   Upload,
   MessageSquare,
@@ -58,24 +58,24 @@ import {
   Link as LinkIcon,
   Save
 } from 'lucide-react';
-import { 
-  PieChart, 
-  Pie, 
-  Cell, 
-  ResponsiveContainer, 
-  Tooltip, 
-  Legend 
+import {
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  Legend
 } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth, storage, firebaseConfig } from './firebase';
-import { 
-  UserProfile, 
-  TutorDetails, 
-  Vacation, 
-  QualityReport, 
-  Flag, 
-  Course, 
-  StudyPlan, 
+import {
+  UserProfile,
+  TutorDetails,
+  Vacation,
+  QualityReport,
+  Flag,
+  Course,
+  StudyPlan,
   Performance,
   MonthlyStudyPlan,
   MonthlyPerformance
@@ -113,9 +113,9 @@ const Logo = ({ url, size = 24, className = "" }: { url: string | null | undefin
           <div className="w-1/3 h-1/3 bg-gray-200/50 rounded-full" />
         </div>
       )}
-      <img 
-        src={directUrl!} 
-        alt="Logo" 
+      <img
+        src={directUrl!}
+        alt="Logo"
         className={`w-full h-full object-contain transition-opacity duration-500 ${loading ? 'opacity-0' : 'opacity-100'}`}
         onLoad={() => setLoading(false)}
         onError={() => {
@@ -365,7 +365,7 @@ function ConfirmDialog({ isOpen, onClose, onConfirm, title, message }: { isOpen:
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <motion.div 
+      <motion.div
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl"
@@ -373,13 +373,13 @@ function ConfirmDialog({ isOpen, onClose, onConfirm, title, message }: { isOpen:
         <h3 className="text-lg font-bold text-[#0047AB] mb-2">{title}</h3>
         <p className="text-gray-600 mb-6">{message}</p>
         <div className="flex gap-3">
-          <button 
+          <button
             onClick={onConfirm}
             className="flex-1 bg-red-600 text-white py-2 rounded-lg font-bold hover:bg-red-700 transition-colors"
           >
             {t('yes')}
           </button>
-          <button 
+          <button
             onClick={onClose}
             className="flex-1 bg-gray-100 text-gray-700 py-2 rounded-lg font-bold hover:bg-gray-200 transition-colors"
           >
@@ -394,7 +394,7 @@ function ConfirmDialog({ isOpen, onClose, onConfirm, title, message }: { isOpen:
 // --- Contexts ---
 const LanguageContext = createContext({
   lang: 'ar',
-  setLang: (l: 'ar' | 'en') => {},
+  setLang: (l: 'ar' | 'en') => { },
   t: (key: keyof typeof translations.en) => ""
 });
 
@@ -477,7 +477,7 @@ const ErrorBoundary = ({ children }: { children: React.ReactNode }) => {
       <div className="p-8 bg-red-50 text-red-800 rounded-lg m-4 border border-red-200">
         <h2 className="text-xl font-bold mb-2">Something went wrong</h2>
         <pre className="text-sm overflow-auto max-h-40">{JSON.stringify(errorInfo, null, 2)}</pre>
-        <button 
+        <button
           onClick={() => window.location.reload()}
           className="mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
         >
@@ -519,15 +519,15 @@ export default function App() {
       });
       activeListeners.current = [];
     }
-    
+
     // 2. Clear local state
     setUser(null);
     setSelectedTutorId(null);
     localStorage.removeItem('sim_user');
-    
+
     // 3. Redirect to login
     setView('login');
-    
+
     // 4. Sign out from Firebase
     try {
       await signOut(auth);
@@ -618,10 +618,10 @@ export default function App() {
                 ...existingUserData,
                 uid: firebaseUser.uid
               };
-              
+
               // Create new doc with Firebase UID
               await setDoc(doc(db, 'users', firebaseUser.uid), userData);
-              
+
               // If it's a tutor, we need to migrate the tutor document too
               if (existingUserData.role === 'tutor') {
                 const tutorDoc = await getDoc(doc(db, 'tutors', oldUid));
@@ -630,7 +630,7 @@ export default function App() {
                   await deleteDoc(doc(db, 'tutors', oldUid));
                 }
               }
-              
+
               // Delete old user doc
               await deleteDoc(doc(db, 'users', oldUid));
             } else if (firebaseUser.email === 'sief.ta3lab@gmail.com' || firebaseUser.email === 'sief.ta3lab@mentor.com') {
@@ -714,19 +714,19 @@ export default function App() {
               )}
               {view === 'dashboard' && (
                 <motion.div key="dashboard" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                  <MentorDashboard 
-                    mentor={user!} 
-                    onSelectTutor={(id) => { setSelectedTutorId(id); setView('tutorDetail'); }} 
+                  <MentorDashboard
+                    mentor={user!}
+                    onSelectTutor={(id) => { setSelectedTutorId(id); setView('tutorDetail'); }}
                     registerListener={registerListener}
                   />
                 </motion.div>
               )}
               {view === 'tutorDetail' && selectedTutorId && (
                 <motion.div key="detail" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                  <TutorDetail 
-                    tutorId={selectedTutorId} 
-                    isMentor={true} 
-                    onBack={() => setView('dashboard')} 
+                  <TutorDetail
+                    tutorId={selectedTutorId}
+                    isMentor={true}
+                    onBack={() => setView('dashboard')}
                     registerListener={registerListener}
                   />
                 </motion.div>
@@ -774,8 +774,8 @@ function Header({ user, setView, onLogout, onUpdateUser }: { user: UserProfile |
     <header className="bg-white shadow-sm border-b border-[#89CFF0]/30 sticky top-0 z-50">
       <div className="container mx-auto px-4 h-16 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div 
-            className="w-10 h-10 rounded-lg overflow-hidden flex items-center justify-center bg-[#0047AB] shadow-lg shadow-blue-200 cursor-pointer" 
+          <div
+            className="w-10 h-10 rounded-lg overflow-hidden flex items-center justify-center bg-[#0047AB] shadow-lg shadow-blue-200 cursor-pointer"
             onClick={() => setView(user?.role === 'mentor' ? 'dashboard' : 'tutorSelf')}
           >
             <Logo url={currentLogo} size={20} className="w-full h-full" />
@@ -784,7 +784,7 @@ function Header({ user, setView, onLogout, onUpdateUser }: { user: UserProfile |
         </div>
 
         <div className="flex items-center gap-4">
-          <button 
+          <button
             onClick={() => setLang(lang === 'ar' ? 'en' : 'ar')}
             className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-[#89CFF0] text-[#0047AB] hover:bg-[#89CFF0]/10 transition-colors"
           >
@@ -795,7 +795,7 @@ function Header({ user, setView, onLogout, onUpdateUser }: { user: UserProfile |
           {user && (
             <div className="flex items-center gap-4">
               {user.role === 'mentor' && (
-                <button 
+                <button
                   onClick={() => setView('settings')}
                   className="p-2 text-gray-500 hover:text-[#0047AB] transition-colors"
                   title={t('settings')}
@@ -803,12 +803,12 @@ function Header({ user, setView, onLogout, onUpdateUser }: { user: UserProfile |
                   <Settings size={20} />
                 </button>
               )}
-              
+
               <div className="hidden md:block text-right">
                 <p className="text-sm font-bold text-[#0047AB]">{user.name}</p>
                 <p className="text-xs text-gray-500 capitalize">{t(user.role)}</p>
               </div>
-              <button 
+              <button
                 onClick={onLogout}
                 className="p-2 text-gray-500 hover:text-red-500 transition-colors"
                 title={t('logout')}
@@ -904,14 +904,14 @@ function Login({ onLogin, externalError }: { onLogin: (u: UserProfile) => void, 
         return; // Success, onAuthStateChanged will handle
       } catch (authErr: any) {
         if (authErr.message === 'Invalid role selected') throw authErr;
-        
+
         // 2. Try simulated auth as fallback (for existing tutors/mentors not in Auth yet)
         const emailsToTry = [loginEmail, email.trim().toLowerCase()];
-        
+
         for (const testEmail of emailsToTry) {
           const q = query(
-            collection(db, 'users'), 
-            where('email', '==', testEmail), 
+            collection(db, 'users'),
+            where('email', '==', testEmail),
             where('password', '==', loginPassword)
           );
           const snapshot = await getDocs(q);
@@ -926,7 +926,7 @@ function Login({ onLogin, externalError }: { onLogin: (u: UserProfile) => void, 
             return;
           }
         }
-        
+
         // If we reach here, both Auth and Simulated failed
         if (authErr.code === 'auth/user-not-found' || authErr.code === 'auth/wrong-password' || authErr.code === 'auth/invalid-credential' || authErr.code === 'auth/invalid-email') {
           throw new Error('Invalid email or password');
@@ -976,7 +976,7 @@ function Login({ onLogin, externalError }: { onLogin: (u: UserProfile) => void, 
       };
 
       await setDoc(doc(db, 'users', mentorUid), mentorProfile);
-      
+
       localStorage.setItem('sim_user', JSON.stringify(mentorProfile));
       onLogin(mentorProfile);
     } catch (err: any) {
@@ -988,7 +988,7 @@ function Login({ onLogin, externalError }: { onLogin: (u: UserProfile) => void, 
 
   if (isSetup) {
     return (
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="max-w-md mx-auto mt-12 bg-white p-8 rounded-2xl shadow-xl border border-[#89CFF0]/20"
@@ -1001,60 +1001,60 @@ function Login({ onLogin, externalError }: { onLogin: (u: UserProfile) => void, 
         <form onSubmit={handleSetup} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t('teamLeaderName')}</label>
-            <input 
-              type="text" 
+            <input
+              type="text"
               value={setupData.teamLeaderName}
-              onChange={(e) => setSetupData({...setupData, teamLeaderName: e.target.value})}
+              onChange={(e) => setSetupData({ ...setupData, teamLeaderName: e.target.value })}
               className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-[#89CFF0] outline-none"
               required
             />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t('teamNumber')}</label>
-            <input 
-              type="text" 
+            <input
+              type="text"
               value={setupData.teamNumber}
-              onChange={(e) => setSetupData({...setupData, teamNumber: e.target.value})}
+              onChange={(e) => setSetupData({ ...setupData, teamNumber: e.target.value })}
               className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-[#89CFF0] outline-none"
               required
             />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t('mentorName')}</label>
-            <input 
-              type="text" 
+            <input
+              type="text"
               value={setupData.mentorName}
-              onChange={(e) => setSetupData({...setupData, mentorName: e.target.value})}
+              onChange={(e) => setSetupData({ ...setupData, mentorName: e.target.value })}
               className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-[#89CFF0] outline-none"
               required
             />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t('subTeamName')}</label>
-            <input 
-              type="text" 
+            <input
+              type="text"
               value={setupData.subTeamName}
-              onChange={(e) => setSetupData({...setupData, subTeamName: e.target.value})}
+              onChange={(e) => setSetupData({ ...setupData, subTeamName: e.target.value })}
               className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-[#89CFF0] outline-none"
               required
             />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t('email')}</label>
-            <input 
-              type="email" 
+            <input
+              type="email"
               value={setupData.email}
-              onChange={(e) => setSetupData({...setupData, email: e.target.value})}
+              onChange={(e) => setSetupData({ ...setupData, email: e.target.value })}
               className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-[#89CFF0] outline-none"
               required
             />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t('password')}</label>
-            <input 
-              type="password" 
+            <input
+              type="password"
               value={setupData.password}
-              onChange={(e) => setSetupData({...setupData, password: e.target.value})}
+              onChange={(e) => setSetupData({ ...setupData, password: e.target.value })}
               className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-[#89CFF0] outline-none"
               required
             />
@@ -1067,15 +1067,15 @@ function Login({ onLogin, externalError }: { onLogin: (u: UserProfile) => void, 
             </div>
           )}
 
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             disabled={loading}
             className="w-full py-2.5 bg-[#0047AB] text-white rounded-lg font-bold hover:bg-[#003580] transition-all disabled:opacity-50"
           >
             {loading ? t('loading') : t('submit')}
           </button>
 
-          <button 
+          <button
             type="button"
             onClick={() => setIsSetup(false)}
             className="w-full text-sm text-gray-500 hover:text-[#0047AB] transition-colors"
@@ -1088,7 +1088,7 @@ function Login({ onLogin, externalError }: { onLogin: (u: UserProfile) => void, 
   }
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       className="max-w-md mx-auto mt-12 bg-white p-8 rounded-2xl shadow-xl border border-[#89CFF0]/20"
@@ -1109,14 +1109,14 @@ function Login({ onLogin, externalError }: { onLogin: (u: UserProfile) => void, 
             {t('selectRole')}
           </p>
           <div className="flex gap-2">
-            <button 
+            <button
               type="button"
               onClick={() => setRole('tutor')}
               className={`flex-1 py-3 rounded-xl text-sm font-black transition-all duration-300 ${role === 'tutor' ? 'bg-[#0047AB] text-white shadow-lg shadow-blue-200 scale-105' : 'bg-white text-gray-400 border border-gray-100'}`}
             >
               {t('tutorRole')}
             </button>
-            <button 
+            <button
               type="button"
               onClick={() => setRole('mentor')}
               className={`flex-1 py-3 rounded-xl text-sm font-black transition-all duration-300 ${role === 'mentor' ? 'bg-[#0047AB] text-white shadow-lg shadow-blue-200 scale-105' : 'bg-white text-gray-400 border border-gray-100'}`}
@@ -1129,8 +1129,8 @@ function Login({ onLogin, externalError }: { onLogin: (u: UserProfile) => void, 
         <div className="space-y-4">
           <div>
             <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">{t('email')}</label>
-            <input 
-              type="text" 
+            <input
+              type="text"
               value={email}
               onChange={(e) => setEmail(e.target.value.trim())}
               className="w-full px-5 py-4 rounded-2xl border border-gray-200 focus:ring-4 focus:ring-[#89CFF0]/20 focus:border-[#89CFF0] outline-none transition-all text-lg font-medium"
@@ -1140,8 +1140,8 @@ function Login({ onLogin, externalError }: { onLogin: (u: UserProfile) => void, 
           </div>
           <div>
             <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">{t('password')}</label>
-            <input 
-              type="password" 
+            <input
+              type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value.trim())}
               className="w-full px-5 py-4 rounded-2xl border border-gray-200 focus:ring-4 focus:ring-[#89CFF0]/20 focus:border-[#89CFF0] outline-none transition-all text-lg font-medium"
@@ -1152,7 +1152,7 @@ function Login({ onLogin, externalError }: { onLogin: (u: UserProfile) => void, 
         </div>
 
         {error && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, x: -10 }}
             animate={{ opacity: 1, x: 0 }}
             className="p-4 bg-red-50 text-red-600 text-sm rounded-xl flex items-center gap-3 border border-red-100"
@@ -1162,14 +1162,13 @@ function Login({ onLogin, externalError }: { onLogin: (u: UserProfile) => void, 
           </motion.div>
         )}
 
-        <button 
-          type="submit" 
+        <button
+          type="submit"
           disabled={loading}
-          className={`w-full py-5 rounded-2xl font-black text-lg transition-all duration-300 disabled:opacity-50 transform hover:scale-[1.02] active:scale-[0.98] ${
-            email && password 
-              ? 'bg-[#0047AB] text-white shadow-xl shadow-blue-200' 
+          className={`w-full py-5 rounded-2xl font-black text-lg transition-all duration-300 disabled:opacity-50 transform hover:scale-[1.02] active:scale-[0.98] ${email && password
+              ? 'bg-[#0047AB] text-white shadow-xl shadow-blue-200'
               : 'bg-gray-100 text-gray-400'
-          }`}
+            }`}
         >
           {loading ? (
             <div className="flex items-center justify-center gap-3">
@@ -1180,7 +1179,7 @@ function Login({ onLogin, externalError }: { onLogin: (u: UserProfile) => void, 
         </button>
 
         {role === 'mentor' && (
-          <button 
+          <button
             type="button"
             onClick={() => setIsSetup(true)}
             className="w-full mt-4 text-sm font-bold text-gray-400 hover:text-[#0047AB] transition-colors py-2"
@@ -1256,7 +1255,7 @@ function TutorDashboard({ user, registerListener }: { user: UserProfile, registe
       const fbRef = doc(db, 'feedbacks', fbId);
       const fbDoc = await getDoc(fbRef);
       if (!fbDoc.exists()) return;
-      
+
       const currentReplies = fbDoc.data().replies || [];
       const newReply = {
         senderId: user.uid,
@@ -1286,10 +1285,10 @@ function TutorDashboard({ user, registerListener }: { user: UserProfile, registe
       console.error("Error confirming done:", err);
     }
   };
-  
+
   return (
     <div className="max-w-4xl mx-auto space-y-8">
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="bg-white p-8 rounded-3xl shadow-xl border border-[#89CFF0]/20 text-center"
@@ -1299,7 +1298,7 @@ function TutorDashboard({ user, registerListener }: { user: UserProfile, registe
         </div>
         <h2 className="text-3xl font-black text-[#0047AB] mb-2">{t('welcome')}, {user.name}</h2>
         <p className="text-gray-500 mb-8">{t('tutorPortal')}</p>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="p-6 bg-[#89CFF0]/10 rounded-2xl border border-[#89CFF0]/20 flex items-center gap-4">
             <div className="w-12 h-12 rounded-lg overflow-hidden bg-white border-2 border-[#89CFF0] flex items-center justify-center shadow-sm">
@@ -1327,7 +1326,7 @@ function TutorDashboard({ user, registerListener }: { user: UserProfile, registe
         </div>
         <div className="p-8">
           <form onSubmit={handleSendFeedback} className="space-y-4">
-            <textarea 
+            <textarea
               value={feedback}
               onChange={(e) => setFeedback(e.target.value)}
               placeholder={t('writeMessage')}
@@ -1336,7 +1335,7 @@ function TutorDashboard({ user, registerListener }: { user: UserProfile, registe
             />
             <div className="flex items-center justify-between">
               {showSuccess && (
-                <motion.p 
+                <motion.p
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
                   className="text-green-600 font-bold text-sm"
@@ -1344,7 +1343,7 @@ function TutorDashboard({ user, registerListener }: { user: UserProfile, registe
                   {t('messageSent')}
                 </motion.p>
               )}
-              <button 
+              <button
                 type="submit"
                 disabled={sending}
                 className="bg-[#0047AB] text-white px-8 py-2.5 rounded-xl font-bold hover:bg-[#003580] transition-all flex items-center gap-2 disabled:opacity-50 ml-auto"
@@ -1374,7 +1373,7 @@ function TutorDashboard({ user, registerListener }: { user: UserProfile, registe
             {resolvedFeedbacks.map((fb) => (
               <div key={fb.id} className="p-4 rounded-xl bg-gray-50 border border-gray-100">
                 <p className="text-sm text-gray-600 mb-4 whitespace-pre-wrap">{fb.messageContent}</p>
-                
+
                 {fb.replies && fb.replies.length > 0 && (
                   <div className="mt-4 space-y-3 pl-4 border-l-2 border-[#89CFF0]/30">
                     {fb.replies.map((reply: any, idx: number) => (
@@ -1394,20 +1393,20 @@ function TutorDashboard({ user, registerListener }: { user: UserProfile, registe
                 <div className="mt-4 flex flex-wrap gap-2">
                   {replyingTo === fb.id ? (
                     <div className="w-full space-y-2">
-                      <textarea 
+                      <textarea
                         value={replyText}
                         onChange={(e) => setReplyText(e.target.value)}
                         placeholder={t('writeMessage')}
                         className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 outline-none focus:ring-2 focus:ring-[#89CFF0]"
                       />
                       <div className="flex gap-2">
-                        <button 
+                        <button
                           onClick={() => handleReply(fb.id)}
                           className="bg-[#0047AB] text-white px-4 py-1.5 rounded-lg text-xs font-bold"
                         >
                           {t('send')}
                         </button>
-                        <button 
+                        <button
                           onClick={() => { setReplyingTo(null); setReplyText(''); }}
                           className="text-gray-500 px-4 py-1.5 rounded-lg text-xs font-bold"
                         >
@@ -1417,14 +1416,14 @@ function TutorDashboard({ user, registerListener }: { user: UserProfile, registe
                     </div>
                   ) : (
                     <>
-                      <button 
+                      <button
                         onClick={() => setReplyingTo(fb.id)}
                         className="text-xs font-bold text-[#0047AB] hover:underline flex items-center gap-1"
                       >
                         <MessageSquare size={14} />
                         {t('reply')}
                       </button>
-                      <button 
+                      <button
                         onClick={() => handleConfirmDone(fb.id)}
                         className="text-xs font-bold text-green-600 hover:underline flex items-center gap-1"
                       >
@@ -1621,7 +1620,7 @@ function MentorSettings({ mentor, onUpdateUser, onBack }: { mentor: UserProfile,
 
   return (
     <div className="max-w-2xl mx-auto">
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="bg-white rounded-3xl shadow-xl border border-[#89CFF0]/20 overflow-hidden"
@@ -1637,7 +1636,7 @@ function MentorSettings({ mentor, onUpdateUser, onBack }: { mentor: UserProfile,
             </h3>
           </div>
         </div>
-        
+
         <form onSubmit={handleSave} className="p-8 space-y-6">
           <div className="space-y-4">
             <div className="flex items-center gap-6 mb-8">
@@ -1726,11 +1725,10 @@ function MentorSettings({ mentor, onUpdateUser, onBack }: { mentor: UserProfile,
               )}
             </button>
             {syncMessage && (
-              <div className={`mt-3 p-3 rounded-xl text-sm font-bold flex items-center gap-2 ${
-                syncMessage.type === 'success'
+              <div className={`mt-3 p-3 rounded-xl text-sm font-bold flex items-center gap-2 ${syncMessage.type === 'success'
                   ? 'bg-green-50 text-green-700 border border-green-200'
                   : 'bg-red-50 text-red-700 border border-red-200'
-              }`}>
+                }`}>
                 {syncMessage.type === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
                 {syncMessage.text}
               </div>
@@ -1773,8 +1771,8 @@ function MentorDashboard({ onSelectTutor, mentor, registerListener }: { onSelect
   useEffect(() => {
     // Only show tutors assigned to this mentor
     const q = query(
-      collection(db, 'users'), 
-      where('role', '==', 'tutor'), 
+      collection(db, 'users'),
+      where('role', '==', 'tutor'),
       where('mentorId', '==', mentor.uid)
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -1818,10 +1816,10 @@ function MentorDashboard({ onSelectTutor, mentor, registerListener }: { onSelect
       const totalFlags = Object.values(detailsMap).reduce((acc, curr) => acc + (curr.redFlags || 0) + (curr.yellowFlags || 0), 0);
       const tutorCount = Object.keys(detailsMap).length || 1;
       const rate = Math.round((totalFlags / tutorCount) * 100);
-      
-      setFlagStats({ 
-        rate, 
-        repeated: totalFlags > 0 ? [t('attendance'), t('quality')] : [] 
+
+      setFlagStats({
+        rate,
+        repeated: totalFlags > 0 ? [t('attendance'), t('quality')] : []
       });
 
       setPerformanceData([
@@ -1850,7 +1848,7 @@ function MentorDashboard({ onSelectTutor, mentor, registerListener }: { onSelect
   return (
     <div className="space-y-8">
       {/* Card 1: Tutor Table */}
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: 1, x: 0 }}
         className="bg-white rounded-2xl shadow-lg border border-[#89CFF0]/20 overflow-hidden"
@@ -1879,7 +1877,7 @@ function MentorDashboard({ onSelectTutor, mentor, registerListener }: { onSelect
                   <tr key={tutor.uid} className="hover:bg-[#89CFF0]/5 transition-colors">
                     <td className="px-6 py-4 font-mono text-gray-500">{tutor.tutorId}</td>
                     <td className="px-6 py-4">
-                      <button 
+                      <button
                         onClick={() => onSelectTutor(tutor.uid)}
                         className="text-[#0047AB] font-bold hover:underline flex items-center gap-2"
                       >
@@ -1923,7 +1921,7 @@ function MentorDashboard({ onSelectTutor, mentor, registerListener }: { onSelect
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Card 2: Performance Wheel */}
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="bg-white rounded-2xl shadow-lg border border-[#89CFF0]/20 p-6"
@@ -1972,7 +1970,7 @@ function MentorDashboard({ onSelectTutor, mentor, registerListener }: { onSelect
       </div>
 
       {/* Card 4: Feedbacks */}
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="bg-white rounded-2xl shadow-lg border border-[#89CFF0]/20 overflow-hidden"
@@ -2001,7 +1999,7 @@ function MentorDashboard({ onSelectTutor, mentor, registerListener }: { onSelect
                       <div className="w-8 h-8 rounded-full bg-[#89CFF0]/20 flex items-center justify-center text-[#0047AB] text-xs font-bold">
                         {fb.tutorName.charAt(0)}
                       </div>
-                      <p 
+                      <p
                         className="font-bold text-[#0047AB] cursor-pointer hover:underline"
                         onClick={() => onSelectTutor(fb.tutorId)}
                       >
@@ -2012,7 +2010,7 @@ function MentorDashboard({ onSelectTutor, mentor, registerListener }: { onSelect
                       <span className="text-[10px] text-gray-400 font-medium">
                         {new Date(fb.timestamp).toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}
                       </span>
-                      <button 
+                      <button
                         onClick={() => handleMarkAsDone(fb.id)}
                         className="text-[10px] font-bold text-green-600 hover:underline flex items-center gap-1"
                       >
@@ -2022,7 +2020,7 @@ function MentorDashboard({ onSelectTutor, mentor, registerListener }: { onSelect
                     </div>
                   </div>
                   <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">{fb.messageContent}</p>
-                  
+
                   {fb.replies && fb.replies.length > 0 && (
                     <div className="mt-3 space-y-2 pl-4 border-l-2 border-[#89CFF0]/30">
                       {fb.replies.map((reply: any, idx: number) => (
@@ -2058,7 +2056,7 @@ function AddTutorCard({ mentor }: { mentor: UserProfile }) {
   });
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [createdCredentials, setCreatedCredentials] = useState<{email: string, pass: string} | null>(null);
+  const [createdCredentials, setCreatedCredentials] = useState<{ email: string, pass: string } | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2070,7 +2068,7 @@ function AddTutorCard({ mentor }: { mentor: UserProfile }) {
       // 1. Duplicate ID Check using a dedicated collection
       const idRef = doc(db, 'tutor_ids', customId);
       const idSnap = await getDoc(idRef);
-      
+
       if (idSnap.exists()) {
         throw new Error('This Tutor ID is already in use by another mentor');
       }
@@ -2079,7 +2077,7 @@ function AddTutorCard({ mentor }: { mentor: UserProfile }) {
       // Use customId as the password
       const secondaryApp = getApps().find(a => a.name === 'Secondary') || initializeApp(firebaseConfig, 'Secondary');
       const secondaryAuth = getAuth(secondaryApp);
-      
+
       let uid = '';
       try {
         const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, customId);
@@ -2142,7 +2140,7 @@ function AddTutorCard({ mentor }: { mentor: UserProfile }) {
   };
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       className="bg-white rounded-2xl shadow-lg border border-[#89CFF0]/20 p-6"
@@ -2155,20 +2153,20 @@ function AddTutorCard({ mentor }: { mentor: UserProfile }) {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">{t('id')}</label>
-            <input 
-              type="text" 
+            <input
+              type="text"
               value={formData.id}
-              onChange={(e) => setFormData({...formData, id: e.target.value})}
+              onChange={(e) => setFormData({ ...formData, id: e.target.value })}
               className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:ring-2 focus:ring-[#89CFF0] outline-none"
               required
             />
           </div>
           <div>
             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">{t('name')}</label>
-            <input 
-              type="text" 
+            <input
+              type="text"
               value={formData.name}
-              onChange={(e) => setFormData({...formData, name: e.target.value})}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:ring-2 focus:ring-[#89CFF0] outline-none"
               required
             />
@@ -2176,26 +2174,26 @@ function AddTutorCard({ mentor }: { mentor: UserProfile }) {
         </div>
         <div>
           <label className="block text-xs font-bold text-gray-500 uppercase mb-1">{t('email')}</label>
-          <input 
-            type="email" 
+          <input
+            type="email"
             value={formData.email}
-            onChange={(e) => setFormData({...formData, email: e.target.value})}
+            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
             className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:ring-2 focus:ring-[#89CFF0] outline-none"
             required
           />
         </div>
         <div>
           <label className="block text-xs font-bold text-gray-500 uppercase mb-1">{t('password')}</label>
-          <input 
-            type="password" 
+          <input
+            type="password"
             value={formData.password}
-            onChange={(e) => setFormData({...formData, password: e.target.value})}
+            onChange={(e) => setFormData({ ...formData, password: e.target.value })}
             className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:ring-2 focus:ring-[#89CFF0] outline-none"
             required
           />
         </div>
-        <button 
-          type="submit" 
+        <button
+          type="submit"
           disabled={loading}
           className="w-full bg-[#0047AB] text-white py-2.5 rounded-lg font-bold hover:bg-[#003580] transition-colors flex items-center justify-center gap-2"
         >
@@ -2262,7 +2260,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
     isOpen: false,
     title: '',
     message: '',
-    onConfirm: () => {},
+    onConfirm: () => { },
   });
 
   // ============================================================
@@ -2517,36 +2515,36 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   };
 
   const handleUploadReport = async (reportId: string, pdfLink: string) => {
-      try {
-        const fileId = pdfLink.includes('/d/') 
-          ? pdfLink.split('/d/')[1]?.split('/')[0] 
-          : pdfLink.split('id=')[1]?.split('&')[0];
-        
-        const directLink = fileId 
-          ? `https://drive.google.com/uc?export=download&id=${fileId}` 
-          : pdfLink;
+    try {
+      const fileId = pdfLink.includes('/d/')
+        ? pdfLink.split('/d/')[1]?.split('/')[0]
+        : pdfLink.split('id=')[1]?.split('&')[0];
 
-        await updateDoc(doc(db, 'tutors', tutorId, 'qualityReports', reportId), {
-          reportUrl: directLink,
-          updatedAt: new Date().toISOString()
-        });
+      const directLink = fileId
+        ? `https://drive.google.com/uc?export=download&id=${fileId}`
+        : pdfLink;
 
-        setConfirmConfig({
-          isOpen: true,
-          title: t('success'),
-          message: 'Report link updated successfully',
-          onConfirm: () => setConfirmConfig(prev => ({ ...prev, isOpen: false }))
-        });
-      } catch (err) {
-        console.error(err);
-        setConfirmConfig({
-          isOpen: true,
-          title: t('error'),
-          message: 'Update failed',
-          onConfirm: () => setConfirmConfig(prev => ({ ...prev, isOpen: false }))
-        });
-      }
-    };
+      await updateDoc(doc(db, 'tutors', tutorId, 'qualityReports', reportId), {
+        reportUrl: directLink,
+        updatedAt: new Date().toISOString()
+      });
+
+      setConfirmConfig({
+        isOpen: true,
+        title: t('success'),
+        message: 'Report link updated successfully',
+        onConfirm: () => setConfirmConfig(prev => ({ ...prev, isOpen: false }))
+      });
+    } catch (err) {
+      console.error(err);
+      setConfirmConfig({
+        isOpen: true,
+        title: t('error'),
+        message: 'Update failed',
+        onConfirm: () => setConfirmConfig(prev => ({ ...prev, isOpen: false }))
+      });
+    }
+  };
 
   // ============================================================
   // MANUAL SYNC (for the "Sync from Sheets" button)
@@ -2556,92 +2554,92 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
     const SHEET_URL = savedUrl || window.prompt("من فضلك أدخل رابط الـ CSV (Publish to Web):");
 
     if (!SHEET_URL || !SHEET_URL.includes('google.com')) {
-        if (!savedUrl) alert("❌ خطأ: الرابط غير صحيح.");
-        return;
+      if (!savedUrl) alert("❌ خطأ: الرابط غير صحيح.");
+      return;
     }
 
     if (savedUrl) setSheetSyncing(prev => ({ ...prev, study: true }));
 
     Papa.parse(SHEET_URL, {
-        download: true,
-        header: true,
-        skipEmptyLines: true,
-        complete: async (results) => {
-            const rows = results.data as any[];
-            const currentTutorId = String(details?.id || tutorId).trim();
+      download: true,
+      header: true,
+      skipEmptyLines: true,
+      complete: async (results) => {
+        const rows = results.data as any[];
+        const currentTutorId = String(details?.id || tutorId).trim();
 
-            // 2. البحث عن الصف
-            const currentRow = rows.find(r => String(r.ID || r.id).trim() === currentTutorId);
+        // 2. البحث عن الصف
+        const currentRow = rows.find(r => String(r.ID || r.id).trim() === currentTutorId);
 
-            if (!currentRow) {
-                if (!savedUrl) alert(`❌ لم يتم العثور على المدرس رقم (${currentTutorId}) في الشيت.`);
-                if (savedUrl) setSheetSyncing(prev => ({ ...prev, study: false }));
-                return;
-            }
-
-            const newCourses: any[] = [];
-
-            // 3. فحص كل الأعمدة
-            Object.keys(currentRow).forEach(col => {
-                const value = String(currentRow[col]).trim().toLowerCase();
-
-                if (value === "done & published" || value === "done") {
-                    const cleanColName = col.replace(/\n/g, ' ').trim();
-
-                    if (cleanColName.toLowerCase() === 'free') {
-                        newCourses.push({ name: "Free", grade: "Done" });
-                    }
-                    else {
-                        const match = cleanColName.match(/(M\d+[:\s\d-]*\[.*?\]|M\d+.*)/i);
-                        newCourses.push({
-                            name: match ? match[0] : cleanColName,
-                            grade: "Done"
-                        });
-                    }
-                }
-            });
-
-            if (newCourses.length === 0) {
-                if (!savedUrl) alert("ℹ️ تم العثور على المدرس، لكن لا يوجد أي كورس بحالة 'Done'");
-                if (savedUrl) setSheetSyncing(prev => ({ ...prev, study: false }));
-                return;
-            }
-
-            // 4. تحديث الـ UI مباشرة (بدون ما ننتظر Firestore)
-            const coursesData = newCourses.map((c, i) => ({ ...c, id: `sheet-${i}` }));
-            setCourses(sortCourses(coursesData));
-
-            // 5. التحديث في Firestore (في الخلفية)
-            try {
-                // حفظ اللينك في بيانات المدرس الأساسية
-                const tutorRef = doc(db, 'tutors', tutorId);
-                await updateDoc(tutorRef, {
-                    studySheetLink: SHEET_URL
-                });
-
-                const coursesRef = collection(db, 'tutors', tutorId, 'courses');
-                const oldDocs = await getDocs(coursesRef);
-                await Promise.all(oldDocs.docs.map(doc => deleteDoc(doc.ref)));
-
-                await Promise.all(newCourses.map(course => addDoc(coursesRef, {
-                    ...course,
-                    createdAt: new Date().toISOString()
-                })));
-
-                // التنبيه والريفريش فقط في حالة الضغط اليدوي
-                if (!savedUrl) {
-                    alert(`✅ مبروك! تم تحديث (${newCourses.length}) كورس بنجاح.`);
-                    window.location.reload();
-                }
-            } catch (err) {
-                console.error(err);
-                if (!savedUrl) alert("❌ فشل تحديث البيانات في Firestore");
-            } finally {
-                if (savedUrl) setSheetSyncing(prev => ({ ...prev, study: false }));
-            }
+        if (!currentRow) {
+          if (!savedUrl) alert(`❌ لم يتم العثور على المدرس رقم (${currentTutorId}) في الشيت.`);
+          if (savedUrl) setSheetSyncing(prev => ({ ...prev, study: false }));
+          return;
         }
+
+        const newCourses: any[] = [];
+
+        // 3. فحص كل الأعمدة
+        Object.keys(currentRow).forEach(col => {
+          const value = String(currentRow[col]).trim().toLowerCase();
+
+          if (value === "done & published" || value === "done") {
+            const cleanColName = col.replace(/\n/g, ' ').trim();
+
+            if (cleanColName.toLowerCase() === 'free') {
+              newCourses.push({ name: "Free", grade: "Done" });
+            }
+            else {
+              const match = cleanColName.match(/(M\d+[:\s\d-]*\[.*?\]|M\d+.*)/i);
+              newCourses.push({
+                name: match ? match[0] : cleanColName,
+                grade: "Done"
+              });
+            }
+          }
+        });
+
+        if (newCourses.length === 0) {
+          if (!savedUrl) alert("ℹ️ تم العثور على المدرس، لكن لا يوجد أي كورس بحالة 'Done'");
+          if (savedUrl) setSheetSyncing(prev => ({ ...prev, study: false }));
+          return;
+        }
+
+        // 4. تحديث الـ UI مباشرة (بدون ما ننتظر Firestore)
+        const coursesData = newCourses.map((c, i) => ({ ...c, id: `sheet-${i}` }));
+        setCourses(sortCourses(coursesData));
+
+        // 5. التحديث في Firestore (في الخلفية)
+        try {
+          // حفظ اللينك في بيانات المدرس الأساسية
+          const tutorRef = doc(db, 'tutors', tutorId);
+          await updateDoc(tutorRef, {
+            studySheetLink: SHEET_URL
+          });
+
+          const coursesRef = collection(db, 'tutors', tutorId, 'courses');
+          const oldDocs = await getDocs(coursesRef);
+          await Promise.all(oldDocs.docs.map(doc => deleteDoc(doc.ref)));
+
+          await Promise.all(newCourses.map(course => addDoc(coursesRef, {
+            ...course,
+            createdAt: new Date().toISOString()
+          })));
+
+          // التنبيه والريفريش فقط في حالة الضغط اليدوي
+          if (!savedUrl) {
+            alert(`✅ مبروك! تم تحديث (${newCourses.length}) كورس بنجاح.`);
+            window.location.reload();
+          }
+        } catch (err) {
+          console.error(err);
+          if (!savedUrl) alert("❌ فشل تحديث البيانات في Firestore");
+        } finally {
+          if (savedUrl) setSheetSyncing(prev => ({ ...prev, study: false }));
+        }
+      }
     });
-};
+  };
 
   const sortCourses = (data: any[]) => {
     return [...data].sort((a, b) => {
@@ -2665,90 +2663,90 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   };
 
   const syncFlagsFromSheets = async (savedUrl?: string) => {
-  let rawUrl = savedUrl || window.prompt("من فضلك أدخل رابط الشير (تأكد أنك واقف على تاب الفلاجات):");
-  if (!rawUrl || !rawUrl.includes('google.com')) return;
+    let rawUrl = savedUrl || window.prompt("من فضلك أدخل رابط الشير (تأكد أنك واقف على تاب الفلاجات):");
+    if (!rawUrl || !rawUrl.includes('google.com')) return;
 
-  if (savedUrl) setSheetSyncing(prev => ({ ...prev, flags: true }));
+    if (savedUrl) setSheetSyncing(prev => ({ ...prev, flags: true }));
 
-  const gidMatch = rawUrl.match(/gid=([0-9]+)/);
-  const gidParam = gidMatch ? `&gid=${gidMatch[1]}` : '';
-  const SHEET_URL = rawUrl.replace(/\/edit.*$/, `/export?format=csv${gidParam}`);
+    const gidMatch = rawUrl.match(/gid=([0-9]+)/);
+    const gidParam = gidMatch ? `&gid=${gidMatch[1]}` : '';
+    const SHEET_URL = rawUrl.replace(/\/edit.*$/, `/export?format=csv${gidParam}`);
 
-  Papa.parse(SHEET_URL, {
-    download: true,
-    header: false,
-    skipEmptyLines: true,
-    complete: async (results) => {
-      const rows = results.data as any[];
+    Papa.parse(SHEET_URL, {
+      download: true,
+      header: false,
+      skipEmptyLines: true,
+      complete: async (results) => {
+        const rows = results.data as any[];
 
-      // 🎯 السر هنا: بنجيب الـ ID اللي هو "T-4538" من الـ details أو الـ profile
-      // لو عندك حقل اسمه tutorCustomId استخدمه، لو اسمه id (واللي جواه رقم) استخدمه
-      const searchId = String(details?.tutorCustomId || details?.id || tutorId).trim();
+        // 🎯 السر هنا: بنجيب الـ ID اللي هو "T-4538" من الـ details أو الـ profile
+        // لو عندك حقل اسمه tutorCustomId استخدمه، لو اسمه id (واللي جواه رقم) استخدمه
+        const searchId = String(details?.tutorCustomId || details?.id || tutorId).trim();
 
-      console.log("🔍 [DEBUG] Searching in sheet for ID:", searchId);
+        console.log("🔍 [DEBUG] Searching in sheet for ID:", searchId);
 
-      // فلترة الصفوف بناءً على الـ ID البشري (T-4538)
-      const tutorRows = rows.filter(row =>
-        String(row[2] || '').trim() === searchId
-      );
+        // فلترة الصفوف بناءً على الـ ID البشري (T-4538)
+        const tutorRows = rows.filter(row =>
+          String(row[2] || '').trim() === searchId
+        );
 
-      if (tutorRows.length === 0) {
-        if (!savedUrl) alert(`لم يتم العثور على Tutor ID: ${searchId} في هذا الشيت.`);
-        if (savedUrl) setSheetSyncing(prev => ({ ...prev, flags: false }));
-        return;
-      }
+        if (tutorRows.length === 0) {
+          if (!savedUrl) alert(`لم يتم العثور على Tutor ID: ${searchId} في هذا الشيت.`);
+          if (savedUrl) setSheetSyncing(prev => ({ ...prev, flags: false }));
+          return;
+        }
 
-      const newFlags = tutorRows.map(row => ({
-        date: `${row[4] || ''} - ${row[5] || ''}`,
-        type: String(row[8] || 'Yellow Flag').trim(),
-        status: String(row[12] || 'Working on').trim(),
-        reason: row[9] || '-',
-        studentId: row[6] || 'N/A',
-        createdAt: new Date().toISOString(),
-        rawDate: new Date(row[4] || 0).getTime()
-      }));
+        const newFlags = tutorRows.map(row => ({
+          date: `${row[4] || ''} - ${row[5] || ''}`,
+          type: String(row[8] || 'Yellow Flag').trim(),
+          status: String(row[12] || 'Working on').trim(),
+          reason: row[9] || '-',
+          studentId: row[6] || 'N/A',
+          createdAt: new Date().toISOString(),
+          rawDate: new Date(row[4] || 0).getTime()
+        }));
 
-      newFlags.sort((a, b) => b.rawDate - a.rawDate);
+        newFlags.sort((a, b) => b.rawDate - a.rawDate);
 
-      // 3. تحديث الـ UI مباشرة (بدون ما ننتظر Firestore)
-      const flagsData = newFlags.map((f, i) => ({ ...f, id: `flag-sheet-${i}` }));
-      setFlags(flagsData);
+        // 3. تحديث الـ UI مباشرة (بدون ما ننتظر Firestore)
+        const flagsData = newFlags.map((f, i) => ({ ...f, id: `flag-sheet-${i}` }));
+        setFlags(flagsData);
 
-      // 4. التحديث في Firestore (في الخلفية)
-      try {
-        // هنا بنستخدم الـ UID (الحروف الكتير) فقط عشان نوصل للمكان في Firebase
-        // tutorId اللي مبعوت للـ Component هو الـ UID
-        const tutorUID = tutorId;
-        const tutorRef = doc(db, 'tutors', tutorUID);
+        // 4. التحديث في Firestore (في الخلفية)
+        try {
+          // هنا بنستخدم الـ UID (الحروف الكتير) فقط عشان نوصل للمكان في Firebase
+          // tutorId اللي مبعوت للـ Component هو الـ UID
+          const tutorUID = tutorId;
+          const tutorRef = doc(db, 'tutors', tutorUID);
 
-        // 1. تحديث اللينك
-        await updateDoc(tutorRef, { flagsSheetLink: rawUrl });
+          // 1. تحديث اللينك
+          await updateDoc(tutorRef, { flagsSheetLink: rawUrl });
 
-        // 2. مسح وتحديث الفلاجات
-        const flagsRef = collection(db, 'tutors', tutorUID, 'flags');
-        const oldDocs = await getDocs(flagsRef);
-        await Promise.all(oldDocs.docs.map(d => deleteDoc(d.ref)));
+          // 2. مسح وتحديث الفلاجات
+          const flagsRef = collection(db, 'tutors', tutorUID, 'flags');
+          const oldDocs = await getDocs(flagsRef);
+          await Promise.all(oldDocs.docs.map(d => deleteDoc(d.ref)));
 
-        for (const flag of newFlags) {
-          const { rawDate, ...flagToSave } = flag;
-          await addDoc(flagsRef, {
+          for (const flag of newFlags) {
+            const { rawDate, ...flagToSave } = flag;
+            await addDoc(flagsRef, {
               ...flagToSave,
               mentorFeedback: "",
               tutorFeedback: ""
-          });
-        }
+            });
+          }
 
-        if (!savedUrl) alert(`تمام يا سيف! لقيت ${newFlags.length} فلاج للمدرس ${searchId} وتم التحديث.`);
-      } catch (err) {
-        console.error("Firebase Error:", err);
-        if (!savedUrl) alert("حصلت مشكلة وأنا بحدث Firebase.");
-      } finally {
-        if (savedUrl) setSheetSyncing(prev => ({ ...prev, flags: false }));
+          if (!savedUrl) alert(`تمام يا سيف! لقيت ${newFlags.length} فلاج للمدرس ${searchId} وتم التحديث.`);
+        } catch (err) {
+          console.error("Firebase Error:", err);
+          if (!savedUrl) alert("حصلت مشكلة وأنا بحدث Firebase.");
+        } finally {
+          if (savedUrl) setSheetSyncing(prev => ({ ...prev, flags: false }));
+        }
       }
-    }
-  });
-};
-  
+    });
+  };
+
   if (loading) return <Loading />;
   if (!details) return <div className="text-center py-12">{t('noData')}</div>;
 
@@ -2781,14 +2779,14 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
         </div>
         {isMentor && (
           <div className="flex gap-2">
-            <button 
+            <button
               onClick={() => setIsEditing(!isEditing)}
               className="px-4 py-2 bg-[#89CFF0] text-white rounded-lg font-bold hover:bg-[#78BEE0] flex items-center gap-2"
             >
               <Edit size={18} />
               {isEditing ? t('cancel') : t('edit')}
             </button>
-            <button 
+            <button
               onClick={() => {
                 setConfirmConfig({
                   isOpen: true,
@@ -2805,7 +2803,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
               <UserMinus size={18} />
               {t('resign')}
             </button>
-            <button 
+            <button
               onClick={() => {
                 setConfirmConfig({
                   isOpen: true,
@@ -2828,7 +2826,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
         )}
       </div>
 
-      <ConfirmDialog 
+      <ConfirmDialog
         isOpen={confirmConfig.isOpen}
         onClose={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
         onConfirm={confirmConfig.onConfirm}
@@ -2843,8 +2841,8 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
             <div className="flex justify-between items-center w-full">
               <span>{t('studyPlan')}</span>
               {isMentor && (
-                <button 
-                  onClick={() => setShowStudyPlanForm(true)} 
+                <button
+                  onClick={() => setShowStudyPlanForm(true)}
                   className="p-1.5 bg-[#89CFF0] text-white rounded-lg hover:bg-[#78BEE0] transition-colors"
                 >
                   <Plus size={18} />
@@ -2857,7 +2855,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
           <div className="space-y-4">
             <AnimatePresence>
               {showStudyPlanForm && (
-                <motion.div 
+                <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
                   exit={{ opacity: 0, height: 0 }}
@@ -2872,7 +2870,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="text-xs font-bold text-gray-500 uppercase">{t('month') || 'Month'}</label>
-                      <input 
+                      <input
                         type="month"
                         value={newPlanMonth}
                         onChange={(e) => setNewPlanMonth(e.target.value)}
@@ -2881,7 +2879,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                     </div>
                     <div>
                       <label className="text-xs font-bold text-gray-500 uppercase">{t('status') || 'Status'}</label>
-                      <select 
+                      <select
                         value={newPlanStatus}
                         onChange={(e) => setNewPlanStatus(e.target.value)}
                         className="w-full px-3 py-2 border rounded-lg text-sm"
@@ -2893,15 +2891,15 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                       </select>
                     </div>
                   </div>
-                  <button 
+                  <button
                     onClick={async () => {
                       if (!newPlanMonth) return;
-                      const prevPlan = studyPlanArray.length > 0 
-                        ? studyPlanArray[studyPlanArray.length - 1] 
+                      const prevPlan = studyPlanArray.length > 0
+                        ? studyPlanArray[studyPlanArray.length - 1]
                         : details.studyPlan;
 
-                      const newPlan: MonthlyStudyPlan = { 
-                        month: newPlanMonth, 
+                      const newPlan: MonthlyStudyPlan = {
+                        month: newPlanMonth,
                         status: newPlanStatus,
                         course1: prevPlan?.course1 || '',
                         course1Grade: prevPlan?.course1Grade || '',
@@ -2935,7 +2933,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                     'Ignored': 'bg-red-500/10 text-red-700 border-none',
                   };
                   return (
-                    <motion.div 
+                    <motion.div
                       key={idx}
                       initial={{ opacity: 0, x: -10 }}
                       animate={{ opacity: 1, x: 0 }}
@@ -2964,7 +2962,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                             <span className="text-xs font-bold">{plan.status}</span>
                           )}
                           {isMentor && (
-                            <button 
+                            <button
                               onClick={async () => {
                                 const updated = studyPlanArray.filter((_, i) => i !== idx);
                                 setStudyPlanArray(updated);
@@ -2984,7 +2982,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                           <div className="grid grid-cols-2 gap-2">
                             {isMentor ? (
                               <>
-                                <input 
+                                <input
                                   placeholder={t('courseName')}
                                   value={plan.course1 || ''}
                                   onChange={async (e) => {
@@ -2995,7 +2993,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                                   }}
                                   className="w-full bg-white px-2 py-1 rounded border-none text-sm"
                                 />
-                                <input 
+                                <input
                                   placeholder={t('grade')}
                                   value={plan.course1Grade || ''}
                                   onChange={async (e) => {
@@ -3015,13 +3013,13 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                             )}
                           </div>
                         </div>
-                        
+
                         <div className="p-3 bg-white/40 rounded-xl">
                           <p className="text-[10px] font-bold text-black/50 uppercase mb-1">Course 2</p>
                           <div className="grid grid-cols-2 gap-2">
                             {isMentor ? (
                               <>
-                                <input 
+                                <input
                                   placeholder={t('courseName')}
                                   value={plan.course2 || ''}
                                   onChange={async (e) => {
@@ -3032,7 +3030,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                                   }}
                                   className="w-full bg-white px-2 py-1 rounded border-none text-sm"
                                 />
-                                <input 
+                                <input
                                   placeholder={t('grade')}
                                   value={plan.course2Grade || ''}
                                   onChange={async (e) => {
@@ -3057,7 +3055,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                       <div className="mt-4">
                         <p className="text-[10px] font-bold text-black/50 uppercase mb-1">{t('notes')}</p>
                         {isMentor ? (
-                          <textarea 
+                          <textarea
                             value={plan.notes || ''}
                             onChange={async (e) => {
                               const updated = [...studyPlanArray];
@@ -3073,7 +3071,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                       <div className="mt-3">
                         <p className="text-[10px] font-bold text-black/50 uppercase mb-1">{t('materialLink')}</p>
                         {isMentor ? (
-                          <input 
+                          <input
                             value={plan.materialLink || ''}
                             onChange={async (e) => {
                               const updated = [...studyPlanArray];
@@ -3117,9 +3115,9 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                   <tr key={v.id} className="group">
                     <td className="py-3">
                       {isMentor ? (
-                        <input 
-                          type="date" 
-                          value={v.date} 
+                        <input
+                          type="date"
+                          value={v.date}
                           onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'vacations', v.id), { date: e.target.value })}
                           className="bg-transparent border-none focus:ring-0 p-0 w-32"
                         />
@@ -3127,8 +3125,8 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                     </td>
                     <td className="py-3">
                       {isMentor ? (
-                        <input 
-                          value={v.type} 
+                        <input
+                          value={v.type}
                           onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'vacations', v.id), { type: e.target.value })}
                           className="bg-transparent border-none focus:ring-0 p-0"
                         />
@@ -3137,18 +3135,18 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                     <td className="py-3">
                       {isMentor ? (
                         <div className="flex items-center gap-2">
-                          <input 
-                            value={v.reason} 
+                          <input
+                            value={v.reason}
                             onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'vacations', v.id), { reason: e.target.value })}
                             className="bg-transparent border-none focus:ring-0 p-0 flex-1"
                           />
-                          <button 
+                          <button
                             onClick={async () => {
                               await deleteDoc(doc(db, 'tutors', tutorId, 'vacations', v.id));
                               await updateDoc(doc(db, 'tutors', tutorId), {
                                 vacationCount: increment(-1)
                               });
-                            }} 
+                            }}
                             className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600"
                           >
                             <Trash2 size={14} />
@@ -3169,7 +3167,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
             {reports.map((r) => (
               <div key={r.id} className="pt-6 first:pt-0 space-y-4 relative group">
                 {isMentor && (
-                  <button 
+                  <button
                     onClick={() => {
                       setConfirmConfig({
                         isOpen: true,
@@ -3188,7 +3186,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                 )}
                 <div className="flex items-center justify-between">
                   {isMentor ? (
-                    <input 
+                    <input
                       value={r.month}
                       onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'qualityReports', r.id), { month: e.target.value })}
                       className="px-3 py-1 bg-[#89CFF0]/20 text-[#0047AB] rounded-full text-xs font-bold uppercase border-none focus:ring-0 w-32"
@@ -3199,9 +3197,9 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                   <div className="flex items-center gap-2">
                     <span className="text-2xl font-bold text-[#0047AB]">{r.percentage}%</span>
                     {isMentor && (
-                      <input 
-                        type="number" 
-                        value={r.percentage} 
+                      <input
+                        type="number"
+                        value={r.percentage}
                         onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'qualityReports', r.id), { percentage: Number(e.target.value) })}
                         className="w-16 px-2 py-1 border rounded text-sm"
                       />
@@ -3212,9 +3210,9 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                   <div>
                     <p className="text-gray-500 font-bold mb-1">{t('meetingDate')}</p>
                     {isMentor ? (
-                      <input 
-                        type="datetime-local" 
-                        value={r.meetingDate} 
+                      <input
+                        type="datetime-local"
+                        value={r.meetingDate}
                         onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'qualityReports', r.id), { meetingDate: e.target.value })}
                         className="w-full border rounded px-2 py-1"
                       />
@@ -3223,8 +3221,8 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                   <div>
                     <p className="text-gray-500 font-bold mb-1">{t('meetingLink')}</p>
                     {isMentor ? (
-                      <input 
-                        value={r.meetingLink} 
+                      <input
+                        value={r.meetingLink}
                         onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'qualityReports', r.id), { meetingLink: e.target.value })}
                         className="w-full border rounded px-2 py-1"
                       />
@@ -3234,8 +3232,8 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                 <div>
                   <p className="text-xs font-bold text-gray-500 uppercase mb-1">{t('postMeetingNotes')}</p>
                   {isMentor ? (
-                    <textarea 
-                      value={r.postMeetingNotes} 
+                    <textarea
+                      value={r.postMeetingNotes}
                       onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'qualityReports', r.id), { postMeetingNotes: e.target.value })}
                       className="w-full border rounded px-3 py-2 text-sm h-16"
                     />
@@ -3245,9 +3243,9 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                   <p className="text-xs font-bold text-gray-500 uppercase mb-2">PDF Report</p>
                   <div className="flex items-center gap-3">
                     {r.reportUrl ? (
-                      <a 
-                        href={r.reportUrl} 
-                        target="_blank" 
+                      <a
+                        href={r.reportUrl}
+                        target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-bold hover:bg-red-100 transition-colors"
                       >
@@ -3255,7 +3253,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                         View PDF
                       </a>
                     ) : <span className="text-xs text-gray-400 italic">No PDF uploaded</span>}
-                    
+
                     {isMentor && (
                       <button
                         className="px-4 py-2 bg-[#89CFF0] text-white rounded-lg text-xs flex items-center gap-2"
@@ -3263,7 +3261,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                           const link = prompt("ادخل لينك الـفايل من جوجل درايف");
                           if (link) {
                             // هننادي على الفنكشن اللي بتبعت اللينك للداتا بيز علطول
-                            await handleUploadReport(r.id, link); 
+                            await handleUploadReport(r.id, link);
                           }
                         }}
                       >
@@ -3279,8 +3277,8 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
         </Card>
 
         {/* D) Performance */}
-        <Card 
-          title={t('performance')} 
+        <Card
+          title={t('performance')}
           icon={<TrendingUp size={20} />}
           onAdd={isMentor ? async () => {
             const now = new Date();
@@ -3300,7 +3298,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                 <div key={idx} className="p-4 rounded-xl border bg-gray-50 flex flex-col gap-4 relative group">
                   <div className="flex items-center justify-between border-b border-gray-200 pb-2">
                     {isMentor ? (
-                      <input 
+                      <input
                         type="month"
                         value={perf.month}
                         onChange={async (e) => {
@@ -3315,7 +3313,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                       <span className="font-bold text-lg">{perf.month}</span>
                     )}
                     {isMentor && (
-                      <button 
+                      <button
                         onClick={async () => {
                           const newArr = performanceHistory.filter((_, i) => i !== idx);
                           setPerformanceHistory(newArr);
@@ -3332,7 +3330,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                     <div className="p-3 bg-white rounded-lg border border-gray-100 shadow-sm">
                       <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">{t('quality')}</p>
                       {isMentor ? (
-                        <input 
+                        <input
                           type="number"
                           value={perf.quality || 0}
                           onChange={(e) => {
@@ -3349,11 +3347,11 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                         <p className="font-bold text-[#0047AB] text-lg">{perf.quality}%</p>
                       )}
                     </div>
-                    
+
                     <div className="p-3 bg-white rounded-lg border border-gray-100 shadow-sm">
                       <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">{t('work')}</p>
                       {isMentor ? (
-                        <input 
+                        <input
                           type="number"
                           value={perf.work || 0}
                           onChange={(e) => {
@@ -3373,10 +3371,10 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                   </div>
 
                   <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-200">
-                      <span className="text-xs font-bold text-gray-500 uppercase">Average</span>
-                      <span className="font-bold text-green-600">
-                        {(((perf.quality || 0) + (perf.work || 0)) / 2).toFixed(1)}%
-                      </span>
+                    <span className="text-xs font-bold text-gray-500 uppercase">Average</span>
+                    <span className="font-bold text-green-600">
+                      {(((perf.quality || 0) + (perf.work || 0)) / 2).toFixed(1)}%
+                    </span>
                   </div>
                 </div>
               ))
@@ -3393,16 +3391,16 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
               </div>
 
               {/* إضافة خانة البحث */}
-              <input 
+              <input
                 type="text"
                 placeholder="Search courses..."
                 value={courseSearch}
                 onChange={(e) => setCourseSearch(e.target.value)}
                 className="px-2 py-1 text-xs border rounded-md focus:outline-none focus:ring-1 focus:ring-[#89CFF0] w-full md:w-40 text-black font-normal"
-                onClick={(e) => e.stopPropagation()} 
+                onClick={(e) => e.stopPropagation()}
               />
             </div>
-          } 
+          }
           icon={<BookOpen size={20} />}
           onAdd={isMentor ? handleAddCourse : undefined}
         >
@@ -3431,8 +3429,8 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                 <div key={c.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg group border border-transparent hover:border-[#89CFF0]/30 transition-all">
                   <div className="flex-1">
                     {isMentor ? (
-                      <input 
-                        value={c.name} 
+                      <input
+                        value={c.name}
                         onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'courses', c.id), { name: e.target.value })}
                         className="bg-transparent border-none focus:ring-0 p-0 font-bold text-[#0047AB] w-full"
                         placeholder={t('courseName')}
@@ -3441,19 +3439,19 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                   </div>
                   <div className="flex items-center gap-3">
                     {isMentor ? (
-                      <input 
-                        value={c.grade} 
+                      <input
+                        value={c.grade}
                         onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'courses', c.id), { grade: e.target.value })}
                         className="bg-white border rounded px-2 py-0.5 text-xs w-16 text-center font-bold"
                         placeholder={t('grade')}
                       />
                     ) : <span className="px-2 py-0.5 bg-[#89CFF0]/20 text-[#0047AB] rounded text-[10px] font-bold uppercase">{c.grade || '-'}</span>}
-                    
+
                     {isMentor && (
-                      <button 
+                      <button
                         onClick={() => {
-                          if(window.confirm("Are you sure?")) deleteDoc(doc(db, 'tutors', tutorId, 'courses', c.id));
-                        }} 
+                          if (window.confirm("Are you sure?")) deleteDoc(doc(db, 'tutors', tutorId, 'courses', c.id));
+                        }}
                         className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-opacity"
                       >
                         <Trash2 size={14} />
@@ -3481,11 +3479,11 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
               <div key={f.id} className="p-4 border rounded-xl space-y-3 relative group bg-white shadow-sm">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    
+
                     {/* نوع العلم - بيقرأ القيمة من الشيت ديناميكياً */}
                     {isMentor ? (
-                      <select 
-                        value={f.type} 
+                      <select
+                        value={f.type}
                         onChange={async (e) => {
                           const newType = e.target.value;
                           const oldType = f.type;
@@ -3497,25 +3495,23 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                             });
                           }
                         }}
-                        className={`text-[10px] font-bold uppercase rounded-full px-2 py-0.5 border-none focus:ring-0 cursor-pointer ${
-                          f.type?.toLowerCase().includes('red') ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600'
-                        }`}
+                        className={`text-[10px] font-bold uppercase rounded-full px-2 py-0.5 border-none focus:ring-0 cursor-pointer ${f.type?.toLowerCase().includes('red') ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600'
+                          }`}
                       >
                         <option value="Red Flag">Red Flag</option>
                         <option value="Yellow Flag">Yellow Flag</option>
                       </select>
                     ) : (
-                      <span className={`text-[10px] font-bold uppercase rounded-full px-2 py-0.5 ${
-                        f.type?.toLowerCase().includes('red') ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600'
-                      }`}>
+                      <span className={`text-[10px] font-bold uppercase rounded-full px-2 py-0.5 ${f.type?.toLowerCase().includes('red') ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600'
+                        }`}>
                         {f.type}
                       </span>
                     )}
 
                     {/* الحالة - Status القادمة من العمود M في الشيت */}
                     {isMentor ? (
-                      <select 
-                        value={f.status} 
+                      <select
+                        value={f.status}
                         onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'flags', f.id), { status: e.target.value })}
                         className="text-[10px] bg-gray-100 rounded-full px-2 py-0.5 border-none focus:ring-0 cursor-pointer font-medium"
                       >
@@ -3526,18 +3522,17 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                         <option value="First month">First month</option>
                       </select>
                     ) : (
-                      <span className={`text-[10px] rounded-full px-2 py-0.5 font-medium ${
-                        f.status === 'Done' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
-                      }`}>
+                      <span className={`text-[10px] rounded-full px-2 py-0.5 font-medium ${f.status === 'Done' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                        }`}>
                         {f.status || 'Pending'}
                       </span>
                     )}
                   </div>
-                  
+
                   {/* التاريخ والـ Slot من العمود E و F */}
                   <span className="text-[10px] text-gray-400 font-mono">{f.date}</span>
                 </div>
-                
+
                 {/* خانة الـ Student ID من العمود G */}
                 <div className="flex items-center gap-2 bg-blue-50/50 p-1.5 rounded-lg">
                   <span className="text-[10px] font-bold text-blue-400 uppercase tracking-tighter">Student ID:</span>
@@ -3548,8 +3543,8 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                 <div className="bg-gray-50 p-2 rounded-lg border-r-2 border-gray-200">
                   <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">السبب:</p>
                   {isMentor ? (
-                    <textarea 
-                      value={f.reason} 
+                    <textarea
+                      value={f.reason}
                       onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'flags', f.id), { reason: e.target.value })}
                       className="w-full text-sm border-none focus:ring-0 p-0 bg-transparent resize-none leading-relaxed"
                       placeholder={t('reason')}
@@ -3563,8 +3558,8 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                   <div>
                     <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">{t('tutorFeedback')}</p>
                     {(!isMentor) ? (
-                      <input 
-                        value={f.tutorFeedback} 
+                      <input
+                        value={f.tutorFeedback}
                         onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'flags', f.id), { tutorFeedback: e.target.value })}
                         className="w-full text-xs border rounded px-2 py-1 focus:ring-1 focus:ring-blue-100 outline-none"
                         placeholder="..."
@@ -3574,8 +3569,8 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                   <div>
                     <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">{t('mentorFeedback')}</p>
                     {isMentor ? (
-                      <input 
-                        value={f.mentorFeedback} 
+                      <input
+                        value={f.mentorFeedback}
                         onChange={(e) => updateDoc(doc(db, 'tutors', tutorId, 'flags', f.id), { mentorFeedback: e.target.value })}
                         className="w-full text-xs border rounded px-2 py-1 focus:ring-1 focus:ring-blue-100 outline-none"
                         placeholder="..."
@@ -3586,15 +3581,15 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
 
                 {/* زر الحذف */}
                 {isMentor && (
-                  <button 
+                  <button
                     onClick={async () => {
-                      if(window.confirm("حذف الفلاج؟")){
+                      if (window.confirm("حذف الفلاج؟")) {
                         await deleteDoc(doc(db, 'tutors', tutorId, 'flags', f.id));
                         await updateDoc(doc(db, 'tutors', tutorId), {
                           [f.type?.toLowerCase().includes('red') ? 'redFlags' : 'yellowFlags']: increment(-1)
                         });
                       }
-                    }} 
+                    }}
                     className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-red-300 hover:text-red-500 transition-opacity"
                   >
                     <X size={14} />
@@ -3605,13 +3600,13 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
           </div>
         </Card>
       </div>
-      
+
       {/* D2) Total Performance - Date Filtered (Moved to the very end) */}
       <Card title={t('totalPerformance')} icon={<TrendingUp size={20} />} className="bg-gradient-to-br from-blue-50 to-white">
         <div className="space-y-4">
           <div className="flex items-center gap-2">
             <label className="text-xs font-bold text-gray-500 uppercase">{t('selectMonth') || 'Select Month'}</label>
-            <input 
+            <input
               type="month"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
@@ -3622,7 +3617,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
             {[1, 3, 6].map((months) => {
               const selYear = parseInt(startDate.split('-')[0]);
               const selMonth = parseInt(startDate.split('-')[1]) - 1;
-              
+
               const periodEnd = new Date(selYear, selMonth + 1, 0, 23, 59, 59).getTime();
               const periodStart = new Date(selYear, selMonth - months + 1, 1).getTime();
 
@@ -3634,7 +3629,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
               (details.performanceHistory || []).forEach(p => {
                 if (!p.month) return;
                 const [y, m] = p.month.split('-');
-                if(y && m) {
+                if (y && m) {
                   const ts = new Date(parseInt(y), parseInt(m) - 1, 1).getTime();
                   if (!isNaN(ts)) allDates.push(ts);
                 }
@@ -3652,7 +3647,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
               const filteredMonthlyPerf = (details.performanceHistory || []).filter(p => {
                 if (!p.month) return false;
                 const [y, m] = p.month.split('-');
-                if(!y || !m) return false;
+                if (!y || !m) return false;
                 const ts = new Date(parseInt(y), parseInt(m) - 1, 1).getTime();
                 // Check if it falls inside the month range
                 return ts >= periodStart && ts <= periodEnd;
@@ -3670,7 +3665,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
               const statusBg = redCount > 0 ? 'bg-red-50 border-red-200' : yellowCount > 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-green-50 border-green-200';
 
               return (
-                <motion.div 
+                <motion.div
                   key={months}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -3711,7 +3706,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
 
 function Card({ title, icon, children, onAdd, className = "" }: { title: string, icon: React.ReactNode, children: React.ReactNode, onAdd?: () => void, className?: string }) {
   return (
-    <motion.div 
+    <motion.div
       layout
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
