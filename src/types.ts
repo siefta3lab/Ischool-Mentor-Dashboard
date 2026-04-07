@@ -36,11 +36,29 @@ export interface Performance {
   total: number;
 }
 
+export interface MonthlyStudyPlan {
+  month: string;
+  status: string;
+  course1: string;
+  course1Grade?: string;
+  course2: string;
+  course2Grade?: string;
+  notes: string;
+  materialLink: string;
+}
+
+export interface MonthlyPerformance {
+  month: string;
+  quality: number;
+  work: number;
+}
+
 export interface TutorDetails {
   id: string;
   name: string;
   studyPlan: StudyPlan;
-  studyPlanArray?: { month: string; status: string }[];
+  studyPlanArray?: MonthlyStudyPlan[];
+  monthlyPerformance?: MonthlyPerformance[];
   performance: Performance;
   status: 'active' | 'resigned';
   vacationCount?: number;

@@ -76,7 +76,9 @@ import {
   Flag, 
   Course, 
   StudyPlan, 
-  Performance 
+  Performance,
+  MonthlyStudyPlan,
+  MonthlyPerformance
 } from './types';
 
 // --- Utils ---
@@ -2233,8 +2235,11 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   const now = new Date();
   const [startDate, setStartDate] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
 
+  // Monthly Performance State
+  const [perfMonth, setPerfMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
+
   // Study Plan array state
-  const [studyPlanArray, setStudyPlanArray] = useState<{ month: string; status: string }[]>([]);
+  const [studyPlanArray, setStudyPlanArray] = useState<MonthlyStudyPlan[]>([]);
   const [showStudyPlanForm, setShowStudyPlanForm] = useState(false);
   const [newPlanMonth, setNewPlanMonth] = useState('');
   const [newPlanStatus, setNewPlanStatus] = useState('In Progress');
@@ -2886,7 +2891,20 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                   <button 
                     onClick={async () => {
                       if (!newPlanMonth) return;
-                      const newPlan = { month: newPlanMonth, status: newPlanStatus };
+                      const prevPlan = studyPlanArray.length > 0 
+                        ? studyPlanArray[studyPlanArray.length - 1] 
+                        : details.studyPlan;
+
+                      const newPlan: MonthlyStudyPlan = { 
+                        month: newPlanMonth, 
+                        status: newPlanStatus,
+                        course1: prevPlan?.course1 || '',
+                        course1Grade: prevPlan?.course1Grade || '',
+                        course2: prevPlan?.course2 || '',
+                        course2Grade: prevPlan?.course2Grade || '',
+                        notes: prevPlan?.notes || '',
+                        materialLink: prevPlan?.materialLink || ''
+                      };
                       const updated = [...studyPlanArray, newPlan];
                       setStudyPlanArray(updated);
                       await updateDoc(doc(db, 'tutors', tutorId), { studyPlanArray: updated });
@@ -2902,9 +2920,8 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
               )}
             </AnimatePresence>
 
-            {studyPlanArray.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-bold text-gray-500 uppercase">{t('monthlyPlans') || 'Monthly Plans'}</p>
+            {studyPlanArray.length > 0 ? (
+              <div className="space-y-4">
                 {studyPlanArray.map((plan, idx) => {
                   const statusStyles: Record<string, string> = {
                     'Done Both': 'bg-green-100 text-green-800 border-green-200',
@@ -2917,112 +2934,162 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                       key={idx}
                       initial={{ opacity: 0, x: -10 }}
                       animate={{ opacity: 1, x: 0 }}
-                      className={`flex items-center justify-between p-3 rounded-lg border ${statusStyles[plan.status] || 'bg-gray-100'}`}
+                      className={`flex flex-col p-4 rounded-xl border ${statusStyles[plan.status] || 'bg-gray-100'}`}
                     >
-                      <span className="font-bold text-sm">{plan.month}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold">{plan.status}</span>
-                        {isMentor && (
-                          <button 
-                            onClick={async () => {
-                              const updated = studyPlanArray.filter((_, i) => i !== idx);
+                      <div className="flex items-center justify-between mb-4 border-b pb-2 border-black/10">
+                        <span className="font-bold text-lg">{plan.month}</span>
+                        <div className="flex items-center gap-2">
+                          {isMentor ? (
+                            <select
+                              value={plan.status}
+                              onChange={async (e) => {
+                                const updated = [...studyPlanArray];
+                                updated[idx].status = e.target.value;
+                                setStudyPlanArray(updated);
+                                await updateDoc(doc(db, 'tutors', tutorId), { studyPlanArray: updated });
+                              }}
+                              className="text-xs font-bold border-none bg-white/50 rounded-lg px-2 py-1"
+                            >
+                              <option value="Done Both">Done Both</option>
+                              <option value="Done One Course">Done One Course</option>
+                              <option value="In Progress">In Progress</option>
+                              <option value="Ignored">Ignored</option>
+                            </select>
+                          ) : (
+                            <span className="text-xs font-bold">{plan.status}</span>
+                          )}
+                          {isMentor && (
+                            <button 
+                              onClick={async () => {
+                                const updated = studyPlanArray.filter((_, i) => i !== idx);
+                                setStudyPlanArray(updated);
+                                await updateDoc(doc(db, 'tutors', tutorId), { studyPlanArray: updated });
+                              }}
+                              className="text-gray-400 hover:text-red-500 ml-2"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-4">
+                        <div className="p-3 bg-white/40 rounded-xl">
+                          <p className="text-[10px] font-bold text-black/50 uppercase mb-1">Course 1</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {isMentor ? (
+                              <>
+                                <input 
+                                  placeholder={t('courseName')}
+                                  value={plan.course1 || ''}
+                                  onChange={async (e) => {
+                                    const updated = [...studyPlanArray];
+                                    updated[idx].course1 = e.target.value;
+                                    setStudyPlanArray(updated);
+                                    await updateDoc(doc(db, 'tutors', tutorId), { studyPlanArray: updated });
+                                  }}
+                                  className="w-full bg-white px-2 py-1 rounded border-none text-sm"
+                                />
+                                <input 
+                                  placeholder={t('grade')}
+                                  value={plan.course1Grade || ''}
+                                  onChange={async (e) => {
+                                    const updated = [...studyPlanArray];
+                                    updated[idx].course1Grade = e.target.value;
+                                    setStudyPlanArray(updated);
+                                    await updateDoc(doc(db, 'tutors', tutorId), { studyPlanArray: updated });
+                                  }}
+                                  className="w-full bg-white px-2 py-1 rounded border-none text-sm"
+                                />
+                              </>
+                            ) : (
+                              <>
+                                <p className="font-bold text-black/80 text-sm">{plan.course1 || '-'}</p>
+                                <span className="px-2 py-0.5 bg-white/60 text-black/80 rounded text-[10px] font-bold w-fit">{plan.course1Grade || '-'}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        
+                        <div className="p-3 bg-white/40 rounded-xl">
+                          <p className="text-[10px] font-bold text-black/50 uppercase mb-1">Course 2</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {isMentor ? (
+                              <>
+                                <input 
+                                  placeholder={t('courseName')}
+                                  value={plan.course2 || ''}
+                                  onChange={async (e) => {
+                                    const updated = [...studyPlanArray];
+                                    updated[idx].course2 = e.target.value;
+                                    setStudyPlanArray(updated);
+                                    await updateDoc(doc(db, 'tutors', tutorId), { studyPlanArray: updated });
+                                  }}
+                                  className="w-full bg-white px-2 py-1 rounded border-none text-sm"
+                                />
+                                <input 
+                                  placeholder={t('grade')}
+                                  value={plan.course2Grade || ''}
+                                  onChange={async (e) => {
+                                    const updated = [...studyPlanArray];
+                                    updated[idx].course2Grade = e.target.value;
+                                    setStudyPlanArray(updated);
+                                    await updateDoc(doc(db, 'tutors', tutorId), { studyPlanArray: updated });
+                                  }}
+                                  className="w-full bg-white px-2 py-1 rounded border-none text-sm"
+                                />
+                              </>
+                            ) : (
+                              <>
+                                <p className="font-bold text-black/80 text-sm">{plan.course2 || '-'}</p>
+                                <span className="px-2 py-0.5 bg-white/60 text-black/80 rounded text-[10px] font-bold w-fit">{plan.course2Grade || '-'}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4">
+                        <p className="text-[10px] font-bold text-black/50 uppercase mb-1">{t('notes')}</p>
+                        {isMentor ? (
+                          <textarea 
+                            value={plan.notes || ''}
+                            onChange={async (e) => {
+                              const updated = [...studyPlanArray];
+                              updated[idx].notes = e.target.value;
                               setStudyPlanArray(updated);
                               await updateDoc(doc(db, 'tutors', tutorId), { studyPlanArray: updated });
                             }}
-                            className="text-gray-400 hover:text-red-500"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                            className="w-full bg-white px-3 py-2 rounded border-none text-sm h-16"
+                          />
+                        ) : <p className="text-sm text-black/80 bg-white/40 p-2 rounded-lg">{plan.notes || '-'}</p>}
+                      </div>
+
+                      <div className="mt-3">
+                        <p className="text-[10px] font-bold text-black/50 uppercase mb-1">{t('materialLink')}</p>
+                        {isMentor ? (
+                          <input 
+                            value={plan.materialLink || ''}
+                            onChange={async (e) => {
+                              const updated = [...studyPlanArray];
+                              updated[idx].materialLink = e.target.value;
+                              setStudyPlanArray(updated);
+                              await updateDoc(doc(db, 'tutors', tutorId), { studyPlanArray: updated });
+                            }}
+                            className="w-full bg-white px-3 py-2 rounded border-none text-sm"
+                          />
+                        ) : (
+                          plan.materialLink ? (
+                            <a href={plan.materialLink} target="_blank" rel="noopener noreferrer" className="text-blue-700 hover:underline text-sm font-medium">Link</a>
+                          ) : <span className="text-sm text-black/50">-</span>
                         )}
                       </div>
                     </motion.div>
                   );
                 })}
               </div>
-            )}
-
-            <div className="grid grid-cols-1 gap-4">
-              <div className="p-4 bg-[#89CFF0]/10 rounded-xl border border-[#89CFF0]/20">
-                <p className="text-xs font-bold text-gray-500 uppercase mb-2">Course 1</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {isEditing ? (
-                    <>
-                      <input 
-                        placeholder={t('courseName')}
-                        value={editData.studyPlan.course1}
-                        onChange={(e) => setEditData({...editData, studyPlan: {...editData.studyPlan, course1: e.target.value}})}
-                        className="w-full bg-white px-2 py-1 rounded border text-sm"
-                      />
-                      <input 
-                        placeholder={t('grade')}
-                        value={editData.studyPlan.course1Grade || ''}
-                        onChange={(e) => setEditData({...editData, studyPlan: {...editData.studyPlan, course1Grade: e.target.value}})}
-                        className="w-full bg-white px-2 py-1 rounded border text-sm"
-                      />
-                    </>
-                  ) : (
-                    <>
-                      <p className="font-bold text-[#0047AB]">{details.studyPlan.course1 || '-'}</p>
-                      <span className="px-2 py-0.5 bg-[#89CFF0]/20 text-[#0047AB] rounded text-xs font-bold w-fit">{details.studyPlan.course1Grade || '-'}</span>
-                    </>
-                  )}
-                </div>
-              </div>
-              <div className="p-4 bg-[#89CFF0]/10 rounded-xl border border-[#89CFF0]/20">
-                <p className="text-xs font-bold text-gray-500 uppercase mb-2">Course 2</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {isEditing ? (
-                    <>
-                      <input 
-                        placeholder={t('courseName')}
-                        value={editData.studyPlan.course2}
-                        onChange={(e) => setEditData({...editData, studyPlan: {...editData.studyPlan, course2: e.target.value}})}
-                        className="w-full bg-white px-2 py-1 rounded border text-sm"
-                      />
-                      <input 
-                        placeholder={t('grade')}
-                        value={editData.studyPlan.course2Grade || ''}
-                        onChange={(e) => setEditData({...editData, studyPlan: {...editData.studyPlan, course2Grade: e.target.value}})}
-                        className="w-full bg-white px-2 py-1 rounded border text-sm"
-                      />
-                    </>
-                  ) : (
-                    <>
-                      <p className="font-bold text-[#0047AB]">{details.studyPlan.course2 || '-'}</p>
-                      <span className="px-2 py-0.5 bg-[#89CFF0]/20 text-[#0047AB] rounded text-xs font-bold w-fit">{details.studyPlan.course2Grade || '-'}</span>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-            <div>
-              <p className="text-xs font-bold text-gray-500 uppercase mb-1">{t('notes')}</p>
-              {isEditing ? (
-                <textarea 
-                  value={editData.studyPlan.notes}
-                  onChange={(e) => setEditData({...editData, studyPlan: {...editData.studyPlan, notes: e.target.value}})}
-                  className="w-full bg-white px-3 py-2 rounded border h-20"
-                />
-              ) : <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded-lg">{details.studyPlan.notes || '-'}</p>}
-            </div>
-            <div>
-              <p className="text-xs font-bold text-gray-500 uppercase mb-1">{t('materialLink')}</p>
-              {isEditing ? (
-                <input 
-                  value={editData.studyPlan.materialLink}
-                  onChange={(e) => setEditData({...editData, studyPlan: {...editData.studyPlan, materialLink: e.target.value}})}
-                  className="w-full bg-white px-3 py-2 rounded border"
-                />
-              ) : (
-                details.studyPlan.materialLink ? (
-                  <a href={details.studyPlan.materialLink} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center gap-1 text-sm">
-                    {details.studyPlan.materialLink}
-                  </a>
-                ) : '-'
-              )}
-            </div>
-            {isEditing && (
-              <button onClick={handleSaveDetails} className="w-full bg-[#0047AB] text-white py-2 rounded-lg font-bold">{t('save')}</button>
+            ) : (
+              <p className="text-sm text-gray-400 italic text-center py-4">No monthly plans yet.</p>
             )}
           </div>
         </Card>
@@ -3207,135 +3274,77 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
         {/* D) Performance */}
         <Card title={t('performance')} icon={<TrendingUp size={20} />}>
           <div className="space-y-6">
-            <div className="flex items-center justify-between p-4 bg-green-50 rounded-xl border border-green-100">
-              <div>
-                <p className="text-xs font-bold text-green-600 uppercase">{t('total')}</p>
-                <p className="text-3xl font-bold text-green-700">
-                  {((details.performance.quality + details.performance.work) / 2).toFixed(1)}%
-                </p>
-              </div>
-              <div className="w-12 h-12 bg-green-200 rounded-full flex items-center justify-center text-green-700">
-                <CheckCircle size={24} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="p-4 bg-white border rounded-xl">
-                <p className="text-xs font-bold text-gray-500 uppercase mb-1">{t('quality')}</p>
-                {isMentor ? (
-                  <input 
-                    type="number" 
-                    value={details.performance.quality} 
-                    onChange={(e) => updateDoc(doc(db, 'tutors', tutorId), { 'performance.quality': Number(e.target.value) })}
-                    className="w-full border rounded px-2 py-1"
-                  />
-                ) : <p className="text-xl font-bold text-[#0047AB]">{details.performance.quality}%</p>}
-              </div>
-              <div className="p-4 bg-white border rounded-xl">
-                <p className="text-xs font-bold text-gray-500 uppercase mb-1">{t('work')}</p>
-                {isMentor ? (
-                  <input 
-                    type="number" 
-                    value={details.performance.work} 
-                    onChange={(e) => updateDoc(doc(db, 'tutors', tutorId), { 'performance.work': Number(e.target.value) })}
-                    className="w-full border rounded px-2 py-1"
-                  />
-                ) : <p className="text-xl font-bold text-[#0047AB]">{details.performance.work}%</p>}
-              </div>
-            </div>
-          </div>
-        </Card>
-
-        {/* D2) Total Performance - Date Filtered */}
-        <Card title={t('totalPerformance')} icon={<TrendingUp size={20} />}>
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-bold text-gray-500 uppercase">{t('selectMonth') || 'Select Month'}</label>
               <input 
                 type="month"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
+                value={perfMonth}
+                onChange={(e) => setPerfMonth(e.target.value)}
                 className="px-3 py-1 border rounded-lg text-sm focus:ring-2 focus:ring-[#89CFF0]"
               />
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {[1, 3, 6].map((months) => {
-                const selYear = parseInt(startDate.split('-')[0]);
-                const selMonth = parseInt(startDate.split('-')[1]) - 1;
-                
-                const periodEnd = new Date(selYear, selMonth + 1, 0, 23, 59, 59).getTime();
-                const periodStart = new Date(selYear, selMonth - months + 1, 1).getTime();
-
-                const allDates: number[] = [];
-                flags.forEach(f => {
-                  const ts = f.rawDate || new Date(f.date).getTime();
-                  if (!isNaN(ts)) allDates.push(ts);
-                });
-                reports.forEach(r => {
-                  if (r.meetingDate) {
-                    const ts = new Date(r.meetingDate).getTime();
-                    if (!isNaN(ts)) allDates.push(ts);
-                  }
-                });
-                const firstDataTs = allDates.length > 0 ? Math.min(...allDates) : Date.now();
-                const isExceeding = periodStart < firstDataTs;
-
-                const filteredFlags = flags.filter(f => {
-                  const ts = f.rawDate || new Date(f.date).getTime();
-                  return ts >= periodStart && ts <= periodEnd;
-                });
-                const redCount = filteredFlags.filter(f => f.type?.toLowerCase().includes('red')).length;
-                const yellowCount = filteredFlags.filter(f => f.type?.toLowerCase().includes('yellow')).length;
-
-                const filteredReports = reports.filter(r => {
-                  if (!r.meetingDate) return false;
-                  const ts = new Date(r.meetingDate).getTime();
-                  return ts >= periodStart && ts <= periodEnd;
-                });
-
-                let avgQuality = '-';
-                if (filteredReports.length > 0) {
-                  const sum = filteredReports.reduce((acc, curr) => acc + curr.percentage, 0);
-                  avgQuality = (sum / filteredReports.length).toFixed(1);
-                }
-
-                const avgWork = details.performance.work ? details.performance.work.toFixed(1) : '-';
-
-                const statusBg = redCount > 0 ? 'bg-red-50 border-red-200' : yellowCount > 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-green-50 border-green-200';
-
-                return (
-                  <motion.div 
-                    key={months}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: months * 0.1 }}
-                    className={`p-4 rounded-xl border ${statusBg}`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm font-bold text-gray-700">{months} {months === 1 ? 'Month' : 'Months'}</p>
-                      {isExceeding && <span className="text-xs text-yellow-600 font-bold bg-yellow-100 px-2 py-0.5 rounded-full">In Progress</span>}
+            {(() => {
+              const currentMonthlyPerf = details.monthlyPerformance?.find(p => p.month === perfMonth) || { quality: 0, work: 0, month: perfMonth };
+              return (
+                <>
+                  <div className="flex items-center justify-between p-4 bg-green-50 rounded-xl border border-green-100">
+                    <div>
+                      <p className="text-xs font-bold text-green-600 uppercase">{t('total')}</p>
+                      <p className="text-3xl font-bold text-green-700">
+                        {(((currentMonthlyPerf.quality || 0) + (currentMonthlyPerf.work || 0)) / 2).toFixed(1)}%
+                      </p>
                     </div>
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">Red Flags:</span>
-                        <span className={`font-bold ${redCount > 0 ? 'text-red-600' : 'text-gray-600'}`}>{redCount}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">Yellow Flags:</span>
-                        <span className={`font-bold ${yellowCount > 0 ? 'text-yellow-600' : 'text-gray-600'}`}>{yellowCount}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">Quality Avg:</span>
-                        <span className="font-bold text-[#0047AB]">{avgQuality !== '-' ? `${avgQuality}%` : '-'}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">Work Avg:</span>
-                        <span className="font-bold text-[#0047AB]">{avgWork !== '-' ? `${avgWork}%` : '-'}</span>
-                      </div>
+                    <div className="w-12 h-12 bg-green-200 rounded-full flex items-center justify-center text-green-700">
+                      <CheckCircle size={24} />
                     </div>
-                  </motion.div>
-                );
-              })}
-            </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-4 bg-white border rounded-xl">
+                      <p className="text-xs font-bold text-gray-500 uppercase mb-1">{t('quality')}</p>
+                      {isMentor ? (
+                        <input 
+                          type="number" 
+                          value={currentMonthlyPerf.quality || 0} 
+                          onChange={async (e) => {
+                            const val = Number(e.target.value);
+                            const updatedMonthly = [...(details.monthlyPerformance || [])];
+                            const idx = updatedMonthly.findIndex(p => p.month === perfMonth);
+                            if (idx >= 0) {
+                              updatedMonthly[idx].quality = val;
+                            } else {
+                              updatedMonthly.push({ month: perfMonth, quality: val, work: 0 });
+                            }
+                            await updateDoc(doc(db, 'tutors', tutorId), { monthlyPerformance: updatedMonthly });
+                          }}
+                          className="w-full border rounded px-2 py-1"
+                        />
+                      ) : <p className="text-xl font-bold text-[#0047AB]">{currentMonthlyPerf.quality || 0}%</p>}
+                    </div>
+                    <div className="p-4 bg-white border rounded-xl">
+                      <p className="text-xs font-bold text-gray-500 uppercase mb-1">{t('work')}</p>
+                      {isMentor ? (
+                        <input 
+                          type="number" 
+                          value={currentMonthlyPerf.work || 0} 
+                          onChange={async (e) => {
+                            const val = Number(e.target.value);
+                            const updatedMonthly = [...(details.monthlyPerformance || [])];
+                            const idx = updatedMonthly.findIndex(p => p.month === perfMonth);
+                            if (idx >= 0) {
+                              updatedMonthly[idx].work = val;
+                            } else {
+                              updatedMonthly.push({ month: perfMonth, quality: 0, work: val });
+                            }
+                            await updateDoc(doc(db, 'tutors', tutorId), { monthlyPerformance: updatedMonthly });
+                          }}
+                          className="w-full border rounded px-2 py-1"
+                        />
+                      ) : <p className="text-xl font-bold text-[#0047AB]">{currentMonthlyPerf.work || 0}%</p>}
+                    </div>
+                  </div>
+                </>
+              )
+            })()}
           </div>
         </Card>
 
@@ -3560,6 +3569,106 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
           </div>
         </Card>
       </div>
+      
+      {/* D2) Total Performance - Date Filtered (Moved to the very end) */}
+      <Card title={t('totalPerformance')} icon={<TrendingUp size={20} />}>
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-bold text-gray-500 uppercase">{t('selectMonth') || 'Select Month'}</label>
+            <input 
+              type="month"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="px-3 py-1 border rounded-lg text-sm focus:ring-2 focus:ring-[#89CFF0]"
+            />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {[1, 3, 6].map((months) => {
+              const selYear = parseInt(startDate.split('-')[0]);
+              const selMonth = parseInt(startDate.split('-')[1]) - 1;
+              
+              const periodEnd = new Date(selYear, selMonth + 1, 0, 23, 59, 59).getTime();
+              const periodStart = new Date(selYear, selMonth - months + 1, 1).getTime();
+
+              const allDates: number[] = [];
+              flags.forEach(f => {
+                const ts = f.rawDate || new Date(f.date).getTime();
+                if (!isNaN(ts)) allDates.push(ts);
+              });
+              (details.monthlyPerformance || []).forEach(p => {
+                if (!p.month) return;
+                const [y, m] = p.month.split('-');
+                if(y && m) {
+                  const ts = new Date(parseInt(y), parseInt(m) - 1, 1).getTime();
+                  if (!isNaN(ts)) allDates.push(ts);
+                }
+              });
+              const firstDataTs = allDates.length > 0 ? Math.min(...allDates) : Date.now();
+              const isExceeding = periodStart < firstDataTs;
+
+              const filteredFlags = flags.filter(f => {
+                const ts = f.rawDate || new Date(f.date).getTime();
+                return ts >= periodStart && ts <= periodEnd;
+              });
+              const redCount = filteredFlags.filter(f => f.type?.toLowerCase().includes('red')).length;
+              const yellowCount = filteredFlags.filter(f => f.type?.toLowerCase().includes('yellow')).length;
+
+              const filteredMonthlyPerf = (details.monthlyPerformance || []).filter(p => {
+                if (!p.month) return false;
+                const [y, m] = p.month.split('-');
+                if(!y || !m) return false;
+                const ts = new Date(parseInt(y), parseInt(m) - 1, 1).getTime();
+                // Check if it falls inside the month range
+                return ts >= periodStart && ts <= periodEnd;
+              });
+
+              let avgQuality = '-';
+              let avgWork = '-';
+              if (filteredMonthlyPerf.length > 0) {
+                const sumQ = filteredMonthlyPerf.reduce((acc, curr) => acc + (curr.quality || 0), 0);
+                const sumW = filteredMonthlyPerf.reduce((acc, curr) => acc + (curr.work || 0), 0);
+                avgQuality = (sumQ / filteredMonthlyPerf.length).toFixed(1);
+                avgWork = (sumW / filteredMonthlyPerf.length).toFixed(1);
+              }
+
+              const statusBg = redCount > 0 ? 'bg-red-50 border-red-200' : yellowCount > 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-green-50 border-green-200';
+
+              return (
+                <motion.div 
+                  key={months}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: months * 0.1 }}
+                  className={`p-4 rounded-xl border ${statusBg}`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-bold text-gray-700">{months} {months === 1 ? 'Month' : 'Months'}</p>
+                    {isExceeding && <span className="text-xs text-yellow-600 font-bold bg-yellow-100 px-2 py-0.5 rounded-full">In Progress</span>}
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Red Flags:</span>
+                      <span className={`font-bold ${redCount > 0 ? 'text-red-600' : 'text-gray-600'}`}>{redCount}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Yellow Flags:</span>
+                      <span className={`font-bold ${yellowCount > 0 ? 'text-yellow-600' : 'text-gray-600'}`}>{yellowCount}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Quality Avg:</span>
+                      <span className="font-bold text-[#0047AB]">{avgQuality !== '-' ? `${avgQuality}%` : '-'}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Work Avg:</span>
+                      <span className="font-bold text-[#0047AB]">{avgWork !== '-' ? `${avgWork}%` : '-'}</span>
+                    </div>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        </div>
+      </Card>
     </div>
   );
 }
