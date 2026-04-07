@@ -3330,12 +3330,14 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                       {isMentor ? (
                         <input 
                           type="number"
-                          value={perf.quality}
-                          onChange={async (e) => {
+                          value={perf.quality || 0}
+                          onChange={(e) => {
                             const newArr = [...performanceHistory];
                             newArr[idx].quality = Number(e.target.value);
                             setPerformanceHistory(newArr);
-                            await updateDoc(doc(db, 'tutors', tutorId), { performanceHistory: newArr });
+                          }}
+                          onBlur={async () => {
+                            await updateDoc(doc(db, 'tutors', tutorId), { performanceHistory });
                           }}
                           className="w-full text-lg font-bold text-[#0047AB] border-none p-0 focus:ring-0"
                         />
@@ -3349,12 +3351,14 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                       {isMentor ? (
                         <input 
                           type="number"
-                          value={perf.work}
-                          onChange={async (e) => {
+                          value={perf.work || 0}
+                          onChange={(e) => {
                             const newArr = [...performanceHistory];
                             newArr[idx].work = Number(e.target.value);
                             setPerformanceHistory(newArr);
-                            await updateDoc(doc(db, 'tutors', tutorId), { performanceHistory: newArr });
+                          }}
+                          onBlur={async () => {
+                            await updateDoc(doc(db, 'tutors', tutorId), { performanceHistory });
                           }}
                           className="w-full text-lg font-bold text-[#0047AB] border-none p-0 focus:ring-0"
                         />
