@@ -3650,13 +3650,13 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                 return ts >= periodStart && ts <= periodEnd;
               });
 
-              let avgQuality = 'No Data';
-              let avgWork = 'No Data';
+              let avgQuality = '-';
+              let avgWork = '-';
               if (filteredMonthlyPerf.length > 0) {
-                const sumQ = filteredMonthlyPerf.reduce((acc, curr) => acc + Number(curr.quality || 0), 0);
-                const sumW = filteredMonthlyPerf.reduce((acc, curr) => acc + Number(curr.work || 0), 0);
-                avgQuality = (sumQ / months).toFixed(1);
-                avgWork = (sumW / months).toFixed(1);
+                const sumQ = filteredMonthlyPerf.reduce((acc, curr) => acc + (curr.quality || 0), 0);
+                const sumW = filteredMonthlyPerf.reduce((acc, curr) => acc + (curr.work || 0), 0);
+                avgQuality = (sumQ / filteredMonthlyPerf.length).toFixed(1);
+                avgWork = (sumW / filteredMonthlyPerf.length).toFixed(1);
               }
 
               const statusBg = redCount > 0 ? 'bg-red-50 border-red-200' : yellowCount > 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-green-50 border-green-200';
@@ -3684,11 +3684,11 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-500">Quality Avg:</span>
-                      <span className="font-bold text-[#0047AB]">{avgQuality !== 'No Data' ? `${avgQuality}%` : 'No Data'}</span>
+                      <span className="font-bold text-[#0047AB]">{avgQuality !== '-' ? `${avgQuality}%` : '-'}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-500">Work Avg:</span>
-                      <span className="font-bold text-[#0047AB]">{avgWork !== 'No Data' ? `${avgWork}%` : 'No Data'}</span>
+                      <span className="font-bold text-[#0047AB]">{avgWork !== '-' ? `${avgWork}%` : '-'}</span>
                     </div>
                   </div>
                 </motion.div>
