@@ -2929,10 +2929,10 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
               <div className="space-y-4">
                 {studyPlanArray.map((plan, idx) => {
                   const statusStyles: Record<string, string> = {
-                    'Done Both': 'bg-green-100 text-green-800 border-green-200',
-                    'Done One Course': 'bg-[#89CFF0]/20 text-[#0047AB] border-[#89CFF0]/30',
-                    'In Progress': 'bg-yellow-100 text-yellow-800 border-yellow-200',
-                    'Ignored': 'bg-red-100 text-red-800 border-red-200',
+                    'Done Both': 'bg-green-500/10 text-green-700 border-none',
+                    'Done One Course': 'bg-[#89CFF0]/10 text-[#0047AB] border-none',
+                    'In Progress': 'bg-yellow-500/10 text-yellow-700 border-none',
+                    'Ignored': 'bg-red-500/10 text-red-700 border-none',
                   };
                   return (
                     <motion.div 
@@ -2970,7 +2970,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                                 setStudyPlanArray(updated);
                                 await updateDoc(doc(db, 'tutors', tutorId), { studyPlanArray: updated });
                               }}
-                              className="text-gray-400 hover:text-red-500 ml-2"
+                              className="text-gray-400 hover:text-red-500"
                             >
                               <Trash2 size={14} />
                             </button>
@@ -3094,7 +3094,9 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                 })}
               </div>
             ) : (
-              <p className="text-sm text-gray-400 italic text-center py-4">No monthly plans yet.</p>
+              <div className="flex flex-col items-center justify-center p-8 bg-white/40 rounded-xl border border-dashed border-[#89CFF0]/50 mt-4">
+                <p className="text-slate-400 font-medium italic">No data for this period</p>
+              </div>
             )}
           </div>
         </Card>
@@ -3290,7 +3292,9 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
         >
           <div className="space-y-4">
             {performanceHistory.length === 0 ? (
-              <p className="text-sm text-gray-400 italic text-center py-4">No performance history yet.</p>
+              <div className="flex flex-col items-center justify-center p-8 bg-white/40 rounded-xl border border-dashed border-[#89CFF0]/50">
+                <p className="text-slate-400 font-medium italic">No data for this period</p>
+              </div>
             ) : (
               performanceHistory.map((perf, idx) => (
                 <div key={idx} className="p-4 rounded-xl border bg-gray-50 flex flex-col gap-4 relative group">
@@ -3603,7 +3607,7 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
       </div>
       
       {/* D2) Total Performance - Date Filtered (Moved to the very end) */}
-      <Card title={t('totalPerformance')} icon={<TrendingUp size={20} />}>
+      <Card title={t('totalPerformance')} icon={<TrendingUp size={20} />} className="bg-gradient-to-br from-blue-50 to-white">
         <div className="space-y-4">
           <div className="flex items-center gap-2">
             <label className="text-xs font-bold text-gray-500 uppercase">{t('selectMonth') || 'Select Month'}</label>
@@ -3679,20 +3683,20 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                   </div>
                   <div className="space-y-2">
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Red Flags:</span>
-                      <span className={`font-bold ${redCount > 0 ? 'text-red-600' : 'text-gray-600'}`}>{redCount}</span>
+                      <span className="text-slate-400 font-medium">Red Flags:</span>
+                      <span className={`font-extrabold ${redCount > 0 ? 'text-red-600' : 'text-slate-900'}`}>{redCount}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Yellow Flags:</span>
-                      <span className={`font-bold ${yellowCount > 0 ? 'text-yellow-600' : 'text-gray-600'}`}>{yellowCount}</span>
+                      <span className="text-slate-400 font-medium">Yellow Flags:</span>
+                      <span className={`font-extrabold ${yellowCount > 0 ? 'text-yellow-600' : 'text-slate-900'}`}>{yellowCount}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Quality Avg:</span>
-                      <span className="font-bold text-[#0047AB]">{avgQuality !== '-' ? `${avgQuality}%` : '-'}</span>
+                      <span className="text-slate-400 font-medium">Quality Avg:</span>
+                      <span className="font-extrabold text-slate-900">{avgQuality !== '-' ? `${avgQuality}%` : '-'}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Work Avg:</span>
-                      <span className="font-bold text-[#0047AB]">{avgWork !== '-' ? `${avgWork}%` : '-'}</span>
+                      <span className="text-slate-400 font-medium">Work Avg:</span>
+                      <span className="font-extrabold text-slate-900">{avgWork !== '-' ? `${avgWork}%` : '-'}</span>
                     </div>
                   </div>
                 </motion.div>
@@ -3705,20 +3709,22 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   );
 }
 
-function Card({ title, icon, children, onAdd }: { title: string, icon: React.ReactNode, children: React.ReactNode, onAdd?: () => void }) {
+function Card({ title, icon, children, onAdd, className = "" }: { title: string, icon: React.ReactNode, children: React.ReactNode, onAdd?: () => void, className?: string }) {
   return (
     <motion.div 
+      layout
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
-      className="bg-white rounded-2xl shadow-lg border border-[#89CFF0]/20 overflow-hidden flex flex-col"
+      whileHover={{ scale: 1.01 }}
+      className={`bg-white/80 backdrop-blur-md rounded-2xl shadow-[0_20px_50px_rgba(8,_112,_184,_0.07)] overflow-hidden flex flex-col ${className}`}
     >
-      <div className="p-5 border-b border-gray-100 flex items-center justify-between bg-[#89CFF0]/5">
-        <h3 className="text-md font-bold text-[#0047AB] flex items-center gap-2">
+      <div className="p-5 border-b border-gray-100 flex items-center justify-between bg-white/40">
+        <h3 className="text-md font-extrabold text-slate-900 flex items-center gap-2">
           {icon}
           {title}
         </h3>
         {onAdd && (
-          <button onClick={onAdd} className="p-1.5 bg-[#89CFF0] text-white rounded-lg hover:bg-[#78BEE0] transition-colors">
+          <button onClick={onAdd} className="p-1.5 bg-[#89CFF0]/20 text-[#0047AB] rounded-lg hover:bg-[#89CFF0] hover:text-white transition-colors">
             <Plus size={18} />
           </button>
         )}
