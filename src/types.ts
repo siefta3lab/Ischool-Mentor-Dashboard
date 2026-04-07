@@ -40,11 +40,13 @@ export interface TutorDetails {
   id: string;
   name: string;
   studyPlan: StudyPlan;
+  studyPlanArray?: { month: string; status: string }[];
   performance: Performance;
   status: 'active' | 'resigned';
   vacationCount?: number;
   redFlags?: number;
   yellowFlags?: number;
+  tutorCustomId?: string;
 }
 
 export interface Vacation {

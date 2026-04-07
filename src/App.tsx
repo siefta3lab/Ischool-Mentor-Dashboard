@@ -2229,6 +2229,16 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
   const [initialSyncDone, setInitialSyncDone] = useState(false);
   const [sheetSyncing, setSheetSyncing] = useState({ study: false, flags: false });
 
+  // Total Performance state
+  const now = new Date();
+  const [startDate, setStartDate] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
+
+  // Study Plan array state
+  const [studyPlanArray, setStudyPlanArray] = useState<{ month: string; status: string }[]>([]);
+  const [showStudyPlanForm, setShowStudyPlanForm] = useState(false);
+  const [newPlanMonth, setNewPlanMonth] = useState('');
+  const [newPlanStatus, setNewPlanStatus] = useState('In Progress');
+
   // Edit states
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<any>(null);
@@ -2365,7 +2375,13 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
 
         // 3. Mark sync done — real-time listeners (onSnapshot below) will
         //    fire with Firestore data; onSnapshot also updates localStorage cache
-        if (isMounted) setInitialSyncDone(true);
+        if (isMounted) {
+          setInitialSyncDone(true);
+          // Load studyPlan array if exists
+          if (tutorData.studyPlanArray) {
+            setStudyPlanArray(tutorData.studyPlanArray);
+          }
+        }
       } catch (err) {
         console.error("[TutorDetail] Init error:", err);
         handleFirestoreError(err as Error, OperationType.GET, `tutors/${tutorId}`);
@@ -2816,11 +2832,115 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
           title={
             <div className="flex justify-between items-center w-full">
               <span>{t('studyPlan')}</span>
+              {isMentor && (
+                <button 
+                  onClick={() => setShowStudyPlanForm(true)} 
+                  className="p-1.5 bg-[#89CFF0] text-white rounded-lg hover:bg-[#78BEE0] transition-colors"
+                >
+                  <Plus size={18} />
+                </button>
+              )}
             </div>
           }
           icon={<BookOpen size={20} />}
         >
           <div className="space-y-4">
+            <AnimatePresence>
+              {showStudyPlanForm && (
+                <motion.div 
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-3"
+                >
+                  <div className="flex justify-between items-center">
+                    <p className="text-sm font-bold text-gray-700">{t('addMonthlyPlan') || 'Add Monthly Plan'}</p>
+                    <button onClick={() => setShowStudyPlanForm(false)} className="text-gray-400 hover:text-gray-600">
+                      <X size={18} />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-bold text-gray-500 uppercase">{t('month') || 'Month'}</label>
+                      <input 
+                        type="month"
+                        value={newPlanMonth}
+                        onChange={(e) => setNewPlanMonth(e.target.value)}
+                        className="w-full px-3 py-2 border rounded-lg text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-gray-500 uppercase">{t('status') || 'Status'}</label>
+                      <select 
+                        value={newPlanStatus}
+                        onChange={(e) => setNewPlanStatus(e.target.value)}
+                        className="w-full px-3 py-2 border rounded-lg text-sm"
+                      >
+                        <option value="Done Both">Done Both</option>
+                        <option value="Done One Course">Done One Course</option>
+                        <option value="In Progress">In Progress</option>
+                        <option value="Ignored">Ignored</option>
+                      </select>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={async () => {
+                      if (!newPlanMonth) return;
+                      const newPlan = { month: newPlanMonth, status: newPlanStatus };
+                      const updated = [...studyPlanArray, newPlan];
+                      setStudyPlanArray(updated);
+                      await updateDoc(doc(db, 'tutors', tutorId), { studyPlanArray: updated });
+                      setShowStudyPlanForm(false);
+                      setNewPlanMonth('');
+                      setNewPlanStatus('In Progress');
+                    }}
+                    className="w-full bg-[#0047AB] text-white py-2 rounded-lg font-bold text-sm"
+                  >
+                    {t('save') || 'Save'}
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {studyPlanArray.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-bold text-gray-500 uppercase">{t('monthlyPlans') || 'Monthly Plans'}</p>
+                {studyPlanArray.map((plan, idx) => {
+                  const statusStyles: Record<string, string> = {
+                    'Done Both': 'bg-green-100 text-green-800 border-green-200',
+                    'Done One Course': 'bg-[#89CFF0]/20 text-[#0047AB] border-[#89CFF0]/30',
+                    'In Progress': 'bg-yellow-100 text-yellow-800 border-yellow-200',
+                    'Ignored': 'bg-red-100 text-red-800 border-red-200',
+                  };
+                  return (
+                    <motion.div 
+                      key={idx}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className={`flex items-center justify-between p-3 rounded-lg border ${statusStyles[plan.status] || 'bg-gray-100'}`}
+                    >
+                      <span className="font-bold text-sm">{plan.month}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold">{plan.status}</span>
+                        {isMentor && (
+                          <button 
+                            onClick={async () => {
+                              const updated = studyPlanArray.filter((_, i) => i !== idx);
+                              setStudyPlanArray(updated);
+                              await updateDoc(doc(db, 'tutors', tutorId), { studyPlanArray: updated });
+                            }}
+                            className="text-gray-400 hover:text-red-500"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            )}
+
             <div className="grid grid-cols-1 gap-4">
               <div className="p-4 bg-[#89CFF0]/10 rounded-xl border border-[#89CFF0]/20">
                 <p className="text-xs font-bold text-gray-500 uppercase mb-2">Course 1</p>
@@ -3121,6 +3241,100 @@ function TutorDetail({ tutorId, isMentor, onBack, registerListener }: { tutorId:
                   />
                 ) : <p className="text-xl font-bold text-[#0047AB]">{details.performance.work}%</p>}
               </div>
+            </div>
+          </div>
+        </Card>
+
+        {/* D2) Total Performance - Date Filtered */}
+        <Card title={t('totalPerformance')} icon={<TrendingUp size={20} />}>
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-bold text-gray-500 uppercase">{t('selectMonth') || 'Select Month'}</label>
+              <input 
+                type="month"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="px-3 py-1 border rounded-lg text-sm focus:ring-2 focus:ring-[#89CFF0]"
+              />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {[1, 3, 6].map((months) => {
+                const selYear = parseInt(startDate.split('-')[0]);
+                const selMonth = parseInt(startDate.split('-')[1]) - 1;
+                
+                const periodEnd = new Date(selYear, selMonth + 1, 0, 23, 59, 59).getTime();
+                const periodStart = new Date(selYear, selMonth - months + 1, 1).getTime();
+
+                const allDates: number[] = [];
+                flags.forEach(f => {
+                  const ts = f.rawDate || new Date(f.date).getTime();
+                  if (!isNaN(ts)) allDates.push(ts);
+                });
+                reports.forEach(r => {
+                  if (r.meetingDate) {
+                    const ts = new Date(r.meetingDate).getTime();
+                    if (!isNaN(ts)) allDates.push(ts);
+                  }
+                });
+                const firstDataTs = allDates.length > 0 ? Math.min(...allDates) : Date.now();
+                const isExceeding = periodStart < firstDataTs;
+
+                const filteredFlags = flags.filter(f => {
+                  const ts = f.rawDate || new Date(f.date).getTime();
+                  return ts >= periodStart && ts <= periodEnd;
+                });
+                const redCount = filteredFlags.filter(f => f.type?.toLowerCase().includes('red')).length;
+                const yellowCount = filteredFlags.filter(f => f.type?.toLowerCase().includes('yellow')).length;
+
+                const filteredReports = reports.filter(r => {
+                  if (!r.meetingDate) return false;
+                  const ts = new Date(r.meetingDate).getTime();
+                  return ts >= periodStart && ts <= periodEnd;
+                });
+
+                let avgQuality = '-';
+                if (filteredReports.length > 0) {
+                  const sum = filteredReports.reduce((acc, curr) => acc + curr.percentage, 0);
+                  avgQuality = (sum / filteredReports.length).toFixed(1);
+                }
+
+                const avgWork = details.performance.work ? details.performance.work.toFixed(1) : '-';
+
+                const statusBg = redCount > 0 ? 'bg-red-50 border-red-200' : yellowCount > 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-green-50 border-green-200';
+
+                return (
+                  <motion.div 
+                    key={months}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: months * 0.1 }}
+                    className={`p-4 rounded-xl border ${statusBg}`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-bold text-gray-700">{months} {months === 1 ? 'Month' : 'Months'}</p>
+                      {isExceeding && <span className="text-xs text-yellow-600 font-bold bg-yellow-100 px-2 py-0.5 rounded-full">In Progress</span>}
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Red Flags:</span>
+                        <span className={`font-bold ${redCount > 0 ? 'text-red-600' : 'text-gray-600'}`}>{redCount}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Yellow Flags:</span>
+                        <span className={`font-bold ${yellowCount > 0 ? 'text-yellow-600' : 'text-gray-600'}`}>{yellowCount}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Quality Avg:</span>
+                        <span className="font-bold text-[#0047AB]">{avgQuality !== '-' ? `${avgQuality}%` : '-'}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Work Avg:</span>
+                        <span className="font-bold text-[#0047AB]">{avgWork !== '-' ? `${avgWork}%` : '-'}</span>
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              })}
             </div>
           </div>
         </Card>
